@@ -36,6 +36,10 @@ Local run (Vercel CLI)
 - Open `http://localhost:3000` and use the Suggest form.
   - The form POSTs to `http://localhost:3000/api/suggestions` and should persist to your Supabase project.
 
+Health check
+- Verify server and DB connectivity:
+  - `GET http://localhost:3000/api/health` → `{ ok: true, db: true, time: ... }`
+
 Notes
 - Use Supabase “Pooling” connection string for serverless to avoid connection exhaustion.
 - You can use `vercel env pull .env.local` to sync env vars from your Vercel project.
