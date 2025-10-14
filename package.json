@@ -6,7 +6,6 @@
   "type": "module",
   "license": "UNLICENSED",
   "dependencies": {
-    "@vercel/kv": "^1.0.0"
+    "@supabase/supabase-js": "^2.45.0"
   }
 }
-

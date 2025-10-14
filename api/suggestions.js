@@ -1,7 +1,9 @@
-// Vercel Serverless Function: Persist game suggestions using Vercel KV
-// Requires env vars (set in Vercel Project Settings):
-// - KV_URL, KV_REST_API_URL, KV_REST_API_TOKEN, KV_REST_API_READ_ONLY_TOKEN
-import { kv } from '@vercel/kv';
+// Vercel Serverless Function: Persist game suggestions using Supabase
+// Env vars (Vercel Project Settings → Environment Variables):
+// - SUPABASE_URL
+// - SUPABASE_SERVICE_ROLE_KEY (preferred for writes, server-only)
+// - SUPABASE_ANON_KEY (optional fallback if service role not set)
+import { createClient } from '@supabase/supabase-js';
 
 function setCors(req, res) {
   const origin = req.headers.origin || '*';
@@ -19,13 +21,25 @@ export default async function handler(req, res) {
     return;
   }
 
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const ANON = process.env.SUPABASE_ANON_KEY;
+  if (!SUPABASE_URL || (!SERVICE_ROLE && !ANON)) {
+    res.status(500).json({ error: 'Supabase env not configured' });
+    return;
+  }
+  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE || ANON, {
+    auth: { persistSession: false },
+  });
+
   if (req.method === 'GET') {
     try {
-      const raw = await kv.lrange('game_suggestions', 0, -1);
-      const items = (raw || []).map((r) => {
-        try { return JSON.parse(r); } catch { return null; }
-      }).filter(Boolean);
-      res.status(200).json({ items });
+      const { data, error } = await supabase
+        .from('suggestions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      res.status(200).json({ items: data || [] });
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch suggestions' });
     }
@@ -48,11 +62,15 @@ export default async function handler(req, res) {
         return;
       }
 
-      const id = (globalThis.crypto?.randomUUID?.()) || String(Date.now());
-      const item = { id, name, email, title, description, createdAt: new Date().toISOString() };
-      await kv.rpush('game_suggestions', JSON.stringify(item));
+      const payload = { name, email, title, description };
+      const { data, error } = await supabase
+        .from('suggestions')
+        .insert([payload])
+        .select()
+        .single();
+      if (error) throw error;
 
-      res.status(201).json({ ok: true, item });
+      res.status(201).json({ ok: true, item: data });
     } catch (err) {
       res.status(500).json({ error: 'Failed to save suggestion' });
     }
@@ -61,4 +79,3 @@ export default async function handler(req, res) {
 
   res.status(405).json({ error: 'Method not allowed' });
 }
-

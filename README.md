@@ -1,13 +1,33 @@
 Game Library + Memory Game (Vanilla JS)
 
-Persistence (Vercel)
-- API route at `api/suggestions.js` stores suggestions in Vercel KV.
+Persistence (Supabase)
+- API route `api/suggestions.js` uses Supabase to persist suggestions.
 - Configure Vercel Project Environment Variables:
-  - `KV_URL`
-  - `KV_REST_API_URL`
-  - `KV_REST_API_TOKEN`
-  - `KV_REST_API_READ_ONLY_TOKEN`
-- Frontend posts to `/api/suggestions`; falls back to localStorage if API isn’t available.
+  - `SUPABASE_URL`
+  - `SUPABASE_SERVICE_ROLE_KEY` (server-only, recommended for writes)
+  - `SUPABASE_ANON_KEY` (optional fallback)
+- Frontend posts to `/api/suggestions`; falls back to localStorage if the API isn’t available.
+
+Supabase table
+Create a `suggestions` table (SQL example):
+
+```
+create table if not exists public.suggestions (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null,
+  title text not null,
+  description text not null,
+  created_at timestamptz not null default now()
+);
+```
+
+Grant read access to `anon` if you want GET to work without service role (optional):
+
+```
+alter table public.suggestions enable row level security;
+create policy "read_suggestions" on public.suggestions for select using (true);
+```
 
 Local development
 - Static pages run without a server; suggestion form saves to localStorage if the API isn’t configured.
