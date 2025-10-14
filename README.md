@@ -32,6 +32,21 @@ create policy "read_suggestions" on public.suggestions for select using (true);
 Local development
 - Static pages run without a server; suggestion form saves to localStorage if the API isn’t configured.
 
+Local run (Vercel CLI)
+- Install the Vercel CLI: `npm i -g vercel`
+- Create and fill `./.env.local` (or copy from `.env.local.example`). Ensure these exist:
+  - `SUPABASE_URL`
+  - `SUPABASE_SERVICE_ROLE_KEY` (recommended for local dev)
+  - `SUPABASE_ANON_KEY` (optional)
+- Start the local dev server from the repo root:
+  - `vercel dev`
+- Open `http://localhost:3000` and use the Suggest form.
+  - The form POSTs to `http://localhost:3000/api/suggestions` and should persist to your Supabase project.
+
+Notes
+- Keep `SUPABASE_SERVICE_ROLE_KEY` only in server-side environments (it’s safe in `api/*` code on Vercel/`vercel dev`, but do not expose it in client-side JS).
+- If you prefer, you can use `vercel env pull .env.local` to sync env vars from your Vercel project.
+
 Overview
 - Simple, functional memory game built with plain HTML/CSS/JS.
 - Clean separation: `src/game.js` contains game logic; `src/main.js` handles UI.
