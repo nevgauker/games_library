@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Checkers</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Checkers</h1>
+      <div class="controls">
+        <label>
+          Opponent:
+          <select id="opponent-select" aria-label="Opponent select">
+            <option value="human">Human</option>
+            <option value="computer">Computer</option>
+          </select>
+        </label>
+        <span id="ai-level-badge" title="AI difficulty">AI Lv: <b id="ai-level">1</b></span>
+        <label style="display:none" id="vol-label">Vol:
+          <input id="volume-range" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume" />
+        </label>
+        <button id="sound-btn" type="button" aria-pressed="true" aria-label="Toggle sound">Sound</button>
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Turn: <span id="turn">Red</span></div>
+        <div id="status"></div>
+      </section>
+      <section id="board" class="board checkerboard" aria-label="Checkers board"></section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Two-player checkers. Simple rules. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <!-- Modal for victory / alerts -->
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">Victory</h2>
+        <p id="modal-message">Player wins!</p>
+        <div class="modal-actions">
+          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/checkers.js"></script>
+    <script src="src/checkers_ui.js"></script>
+  </body>
+  </html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Memory Game</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Memory Game</h1>
+      <div class="controls">
+        <label>
+          Board:
+          <select id="size-select" aria-label="Board size">
+            <option value="4">4 x 4</option>
+            <option value="6">6 x 6</option>
+          </select>
+        </label>
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Moves: <span id="moves">0</span></div>
+        <div>Time: <span id="time">0s</span></div>
+        <div>Score: <span id="score">0</span></div>
+        <div>Best: <span id="best">—</span></div>
+        <div id="status"></div>
+      </section>
+      <section id="board" class="board" aria-label="Memory board"></section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Built for extension: clean logic + UI layers. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <!-- Simple modal for Game Over / Alerts -->
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">Game Over</h2>
+        <p id="modal-message">No moves left.</p>
+        <div class="modal-actions">
+          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/game.js"></script>
+    <script src="src/main.js"></script>
+  </body>
+  </html>

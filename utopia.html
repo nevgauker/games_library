@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tiny Utopia</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Tiny Utopia</h1>
+      <div class="controls">
+        <button id="sound-btn" type="button" aria-pressed="true" aria-label="Toggle sound">Sound</button>
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Plants: <span id="plants">0</span> <span id="plants-tr" class="trend">•</span></div>
+        <div>Animals: <span id="animals">0</span> <span id="animals-tr" class="trend">•</span></div>
+        <div>Water: <span id="water">0</span> <span id="water-tr" class="trend">•</span></div>
+        <div>Harmony: <span id="harmony">0%</span> <span id="harmony-tr" class="trend">•</span></div>
+        <div id="status"></div>
+      </section>
+
+      <section class="utopia">
+        <div id="island" class="island" aria-label="Floating island" role="img"></div>
+        <div class="utopia-controls">
+          <button id="btn-plant" type="button">Grow Plant 🌱</button>
+          <button id="btn-animal" type="button">Spawn Animal 🐑</button>
+          <button id="btn-water" type="button">Add Water 💧</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Cozy idle sandbox — find balance. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <script src="src/utopia.js"></script>
+    <script src="src/utopia_ui.js"></script>
+  </body>
+  </html>
+    <!-- Tutorial modal -->
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">Welcome to Tiny Utopia</h2>
+        <p id="modal-message">Tap buttons to grow plants, spawn animals, and add water. Keep the island in balance!</p>
+        <div class="modal-actions">
+          <button id="modal-next" type="button">Next</button>
+          <button id="modal-done" type="button">Got it</button>
+        </div>
+      </div>
+    </div>

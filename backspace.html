@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Backspace</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Backspace</h1>
+      <div class="controls">
+        <label>
+          Level:
+          <select id="level-select" aria-label="Level select">
+            <option value="0">1</option>
+            <option value="1">2</option>
+            <option value="2">3</option>
+          </select>
+        </label>
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart (R)</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Ghosts: <span id="ghosts">0</span></div>
+        <div>Tip: Move with arrows/WASD, Jump with Space/Z, Rewind with Backspace</div>
+        <div id="status"></div>
+      </section>
+      <section class="backspace-wrap">
+        <canvas id="game" width="640" height="360" aria-label="Backspace level"></canvas>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Rewind to leave a ghost. Use it to solve puzzles. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">You Win!</h2>
+        <p id="modal-message">Great rewind! Press Restart for another run.</p>
+        <div class="modal-actions">
+          <button id="modal-next" type="button">Next Level ▶</button>
+          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/backspace.js"></script>
+    <script src="src/backspace_ui.js"></script>
+  </body>
+  </html>

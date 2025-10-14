@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Game Library</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body class="library">
+    <header class="topbar">
+      <h1>Game Library</h1>
+    </header>
+
+    <main>
+      <section class="hud" aria-hidden="true">
+        <div>Welcome! Choose a game to play.</div>
+        <div id="status"></div>
+      </section>
+
+      <section class="game-grid" aria-label="Available games">
+        <article class="game-card" data-genre="classic">
+          <div class="gc-icon" aria-hidden="true">🧠</div>
+          <h2 class="gc-title">Memory Game</h2>
+          <div class="gc-genre" aria-label="Genre">Classic</div>
+          <p class="gc-desc">Match pairs within a limited number of moves.</p>
+          <a class="gc-action" href="memory.html" aria-label="Play Memory Game">Play ▶</a>
+        </article>
+        <article class="game-card" data-genre="classic">
+          <div class="gc-icon" aria-hidden="true">♟️</div>
+          <h2 class="gc-title">Checkers</h2>
+          <div class="gc-genre" aria-label="Genre">Classic</div>
+          <p class="gc-desc">Two players. Move only your pieces.</p>
+          <a class="gc-action" href="checkers.html" aria-label="Play Checkers">Play ▶</a>
+        </article>
+        <article class="game-card" data-genre="experimental">
+          <div class="gc-icon" aria-hidden="true">🏝️</div>
+          <h2 class="gc-title">Tiny Utopia</h2>
+          <div class="gc-genre" aria-label="Genre">Original · Experimental</div>
+          <p class="gc-desc">Cozy idle island. Grow, balance, relax.</p>
+          <a class="gc-action" href="utopia.html" aria-label="Play Tiny Utopia">Play ▶</a>
+        </article>
+        <article class="game-card" data-genre="experimental">
+          <div class="gc-icon" aria-hidden="true">⏪</div>
+          <h2 class="gc-title">Backspace</h2>
+          <div class="gc-genre" aria-label="Genre">Original · Experimental</div>
+          <p class="gc-desc">Rewind to spawn ghosts and solve puzzles.</p>
+          <a class="gc-action" href="backspace.html" aria-label="Play Backspace">Play ▶</a>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        More games coming soon. ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+  </body>
+  </html>
