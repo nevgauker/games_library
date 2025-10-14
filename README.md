@@ -1,11 +1,13 @@
 Game Library + Memory Game (Vanilla JS)
 
-Persistence (Supabase)
-- API route `api/suggestions.js` uses Supabase to persist suggestions.
-- Configure Vercel Project Environment Variables:
-  - `SUPABASE_URL`
-  - `SUPABASE_SERVICE_ROLE_KEY` (server-only, recommended for writes)
-  - `SUPABASE_ANON_KEY` (optional fallback)
+Persistence
+- Option A (default in repo): Direct Postgres connection (Supabase) via `pg` and `DATABASE_URL`.
+- Option B (alternative): Supabase client keys (anon/service role) — not currently used in code after switch.
+
+Direct Postgres (recommended for your setup)
+- API route `api/suggestions.js` connects to Postgres using `pg` and `DATABASE_URL`.
+- Set Vercel Project Environment Variable:
+  - `DATABASE_URL` (use pooled connection string from Supabase; sslmode=require)
 - Frontend posts to `/api/suggestions`; falls back to localStorage if the API isn’t available.
 
 Supabase table
@@ -22,30 +24,21 @@ create table if not exists public.suggestions (
 );
 ```
 
-Grant read access to `anon` if you want GET to work without service role (optional):
-
-```
-alter table public.suggestions enable row level security;
-create policy "read_suggestions" on public.suggestions for select using (true);
-```
-
 Local development
 - Static pages run without a server; suggestion form saves to localStorage if the API isn’t configured.
 
 Local run (Vercel CLI)
 - Install the Vercel CLI: `npm i -g vercel`
-- Create and fill `./.env.local` (or copy from `.env.local.example`). Ensure these exist:
-  - `SUPABASE_URL`
-  - `SUPABASE_SERVICE_ROLE_KEY` (recommended for local dev)
-  - `SUPABASE_ANON_KEY` (optional)
+- Create and fill `./.env.local` (or copy from `.env.local.example`). Ensure this exists:
+  - `DATABASE_URL`
 - Start the local dev server from the repo root:
   - `vercel dev`
 - Open `http://localhost:3000` and use the Suggest form.
   - The form POSTs to `http://localhost:3000/api/suggestions` and should persist to your Supabase project.
 
 Notes
-- Keep `SUPABASE_SERVICE_ROLE_KEY` only in server-side environments (it’s safe in `api/*` code on Vercel/`vercel dev`, but do not expose it in client-side JS).
-- If you prefer, you can use `vercel env pull .env.local` to sync env vars from your Vercel project.
+- Use Supabase “Pooling” connection string for serverless to avoid connection exhaustion.
+- You can use `vercel env pull .env.local` to sync env vars from your Vercel project.
 
 Overview
 - Simple, functional memory game built with plain HTML/CSS/JS.

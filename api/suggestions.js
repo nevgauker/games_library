@@ -1,9 +1,8 @@
-// Vercel Serverless Function: Persist game suggestions using Supabase
-// Env vars (Vercel Project Settings → Environment Variables):
-// - SUPABASE_URL
-// - SUPABASE_SERVICE_ROLE_KEY (preferred for writes, server-only)
-// - SUPABASE_ANON_KEY (optional fallback if service role not set)
-import { createClient } from '@supabase/supabase-js';
+// Vercel Serverless Function: Persist game suggestions using Postgres (Supabase)
+// Env vars required (Vercel Project Settings → Environment Variables):
+// - DATABASE_URL (use pooled connection string recommended by Supabase)
+//   e.g. postgresql://postgres:YOUR_PASSWORD@<ref>.pooler.supabase.com:6543/postgres?sslmode=require
+import { Pool } from 'pg';
 
 function setCors(req, res) {
   const origin = req.headers.origin || '*';
@@ -13,6 +12,15 @@ function setCors(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
+// Reuse the pool across invocations (Vercel optimization)
+const pool = globalThis.pgPool || (() => {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) return null;
+  const p = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
+  globalThis.pgPool = p;
+  return p;
+})();
+
 export default async function handler(req, res) {
   setCors(req, res);
 
@@ -21,25 +29,17 @@ export default async function handler(req, res) {
     return;
   }
 
-  const SUPABASE_URL = process.env.SUPABASE_URL;
-  const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const ANON = process.env.SUPABASE_ANON_KEY;
-  if (!SUPABASE_URL || (!SERVICE_ROLE && !ANON)) {
-    res.status(500).json({ error: 'Supabase env not configured' });
+  if (!pool) {
+    res.status(500).json({ error: 'DATABASE_URL not configured' });
     return;
   }
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE || ANON, {
-    auth: { persistSession: false },
-  });
 
   if (req.method === 'GET') {
     try {
-      const { data, error } = await supabase
-        .from('suggestions')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      res.status(200).json({ items: data || [] });
+      const { rows } = await pool.query(
+        'select id, name, email, title, description, created_at from public.suggestions order by created_at desc'
+      );
+      res.status(200).json({ items: rows || [] });
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch suggestions' });
     }
@@ -62,15 +62,15 @@ export default async function handler(req, res) {
         return;
       }
 
-      const payload = { name, email, title, description };
-      const { data, error } = await supabase
-        .from('suggestions')
-        .insert([payload])
-        .select()
-        .single();
-      if (error) throw error;
-
-      res.status(201).json({ ok: true, item: data });
+      const insertSQL = `
+        insert into public.suggestions (name, email, title, description)
+        values ($1, $2, $3, $4)
+        returning id, name, email, title, description, created_at
+      `;
+      const values = [name, email, title, description];
+      const { rows } = await pool.query(insertSQL, values);
+      const row = rows?.[0];
+      res.status(201).json({ ok: true, item: row });
     } catch (err) {
       res.status(500).json({ error: 'Failed to save suggestion' });
     }
