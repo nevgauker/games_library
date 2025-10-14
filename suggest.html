@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Suggest a Game • Games libary</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body class="library">
+    <header class="topbar">
+      <h1>Games libary</h1>
+      <nav class="controls">
+        <a class="gc-action" href="index.html" aria-label="Back to library">Back to library</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hud" aria-hidden="true">
+        <div>Suggest a game for the library.</div>
+        <div id="status"></div>
+      </section>
+
+      <section aria-label="Suggest a game" style="max-width: 720px; margin: 12px auto; padding: 16px; background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;">
+        <form id="suggestForm">
+          <div style="display: grid; gap: 12px;">
+            <label>
+              <div style="margin-bottom: 4px;">Your name</div>
+              <input type="text" name="name" required placeholder="Ada Lovelace" style="width:100%; padding:10px; border-radius:6px; border:1px solid #374151; background: var(--card); color: var(--text);" />
+            </label>
+            <label>
+              <div style="margin-bottom: 4px;">Email</div>
+              <input type="email" name="email" required placeholder="you@example.com" style="width:100%; padding:10px; border-radius:6px; border:1px solid #374151; background: var(--card); color: var(--text);" />
+            </label>
+            <label>
+              <div style="margin-bottom: 4px;">Game title</div>
+              <input type="text" name="title" required placeholder="Amazing Puzzle" style="width:100%; padding:10px; border-radius:6px; border:1px solid #374151; background: var(--card); color: var(--text);" />
+            </label>
+            <label>
+              <div style="margin-bottom: 4px;">Description</div>
+              <textarea name="description" rows="5" required placeholder="Share a short description of the game..." style="width:100%; padding:10px; border-radius:6px; border:1px solid #374151; background: var(--card); color: var(--text);"></textarea>
+            </label>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top: 4px;">
+              <a class="gc-action" href="index.html" aria-label="Cancel and go back">Cancel</a>
+              <button type="submit">Submit suggestion</button>
+            </div>
+          </div>
+        </form>
+        <p id="successMessage" class="hidden" style="margin-top:12px; color: var(--accent);">Thanks! Your suggestion was saved locally on this device.</p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Data is stored locally in your browser (no server yet).
+      </small>
+    </footer>
+
+    <script src="src/suggest.js"></script>
+  </body>
+  </html>
+
