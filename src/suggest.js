@@ -20,7 +20,17 @@
     return /.+@.+\..+/.test(email);
   }
 
-  form?.addEventListener('submit', (e) => {
+  async function submitToApi(payload) {
+    const res = await fetch('/api/suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Request failed');
+    return res.json();
+  }
+
+  form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     status.textContent = '';
     success.classList.add('hidden');
@@ -42,13 +52,18 @@
       createdAt: new Date().toISOString(),
     };
 
-    const list = getSuggestions();
-    list.push(suggestion);
-    saveSuggestions(list);
+    try {
+      // Try persisting via API (Vercel KV in production)
+      await submitToApi(suggestion);
+    } catch (err) {
+      // Fallback: localStorage if API unavailable (local dev, offline)
+      const list = getSuggestions();
+      list.push(suggestion);
+      saveSuggestions(list);
+    }
 
     form.reset();
     success.classList.remove('hidden');
     status.textContent = '';
   });
 })();
-

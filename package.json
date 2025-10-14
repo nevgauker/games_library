@@ -1,0 +1,12 @@
+{
+  "name": "games_library",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simple games library with suggestion form",
+  "type": "module",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@vercel/kv": "^1.0.0"
+  }
+}
+

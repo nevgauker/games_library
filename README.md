@@ -1,5 +1,17 @@
 Game Library + Memory Game (Vanilla JS)
 
+Persistence (Vercel)
+- API route at `api/suggestions.js` stores suggestions in Vercel KV.
+- Configure Vercel Project Environment Variables:
+  - `KV_URL`
+  - `KV_REST_API_URL`
+  - `KV_REST_API_TOKEN`
+  - `KV_REST_API_READ_ONLY_TOKEN`
+- Frontend posts to `/api/suggestions`; falls back to localStorage if API isn’t available.
+
+Local development
+- Static pages run without a server; suggestion form saves to localStorage if the API isn’t configured.
+
 Overview
 - Simple, functional memory game built with plain HTML/CSS/JS.
 - Clean separation: `src/game.js` contains game logic; `src/main.js` handles UI.
