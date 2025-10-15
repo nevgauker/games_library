@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pac-Man</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Pac-Man</h1>
+      <div class="controls">
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart (R)</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Score: <span id="score">0</span></div>
+        <div>Lives: <span id="lives">3</span></div>
+        <div>Level: <span id="level">1</span></div>
+        <div>Tip: Move with Arrows/WASD. Eat all dots.</div>
+        <div id="status"></div>
+      </section>
+      <section class="backspace-wrap">
+        <canvas id="game" width="448" height="448" aria-label="Pac-Man maze"></canvas>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Classic maze chase. Eat pills, dodge ghosts. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">You Win!</h2>
+        <p id="modal-message">All dots cleared. Press Restart for another run.</p>
+        <div class="modal-actions">
+          <button id="modal-next" type="button">Next Level →</button>
+          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/pacman.js"></script>
+    <script src="src/pacman_ui.js"></script>
+  </body>
+  </html>

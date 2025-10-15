@@ -48,6 +48,7 @@ Overview
 - Simple, functional memory game built with plain HTML/CSS/JS.
 - Clean separation: `src/game.js` contains game logic; `src/main.js` handles UI.
 - Designed for easy extension (themes, scoring, levels, persistence).
+ - Additional games: Checkers, Tiny Utopia, Backspace, and Pac-Man (retro canvas).
 
 Getting Started
 - Open `index.html` to view the game library.
@@ -55,17 +56,20 @@ Getting Started
 - In Memory Game: choose board size (4x4 or 6x6), click tiles to match pairs.
 
 Project Structure
-- `index.html` — Main game library page
-- `memory.html` — Memory game page (standalone)
-- `checkers.html` — Checkers game page (standalone)
-- `utopia.html` — Tiny Utopia cozy idle sandbox
-- `src/style.css` — Minimal styling and card flip effect
-- `src/game.js` — Core game engine (state, shuffling, moves, events)
-- `src/main.js` — DOM rendering, event wiring, HUD, and interactions
-- `src/checkers.js` — Checkers core (board, turn, move validation)
-- `src/checkers_ui.js` — Checkers UI rendering and interactions
-- `src/utopia.js` — Tiny Utopia ecosystem engine
-- `src/utopia_ui.js` — Tiny Utopia UI, island rendering, ambience
+- `index.html` – Main game library page
+- `memory.html` – Memory game page (standalone)
+- `checkers.html` – Checkers game page (standalone)
+- `utopia.html` – Tiny Utopia cozy idle sandbox
+ - `pacman.html` – Pac-Man retro maze chase
+- `src/style.css` – Minimal styling and card flip effect
+- `src/game.js` – Core game engine (state, shuffling, moves, events)
+- `src/main.js` – DOM rendering, event wiring, HUD, and interactions
+- `src/checkers.js` – Checkers core (board, turn, move validation)
+- `src/checkers_ui.js` – Checkers UI rendering and interactions
+- `src/utopia.js` – Tiny Utopia ecosystem engine
+- `src/utopia_ui.js` – Tiny Utopia UI, island rendering, ambience
+ - `src/pacman.js` – Pac-Man engine (maze, pellets, ghosts, collisions)
+ - `src/pacman_ui.js` – Pac-Man canvas rendering and input wiring
 
 Extending the Game
 - New symbol sets: pass a custom `symbols` array when creating `MemoryGame`.
