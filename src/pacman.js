@@ -406,8 +406,16 @@
               }
               chosen = bestDir;
             } else if (g.frightened) {
-              // random choice
-              chosen = dirs[Math.floor(Math.random() * dirs.length)];
+              // Flee: choose direction that maximizes distance from Pac-Man
+              const pac = { x: Math.floor(this.pac.x / TILE), y: Math.floor(this.pac.y / TILE) };
+              let best = -Infinity; let bestDir = dirs[0];
+              for (const d of dirs) {
+                const v = dirVec(d);
+                const cand = { x: (ggx + v.dx), y: (ggy + v.dy) };
+                const dist = distance(cand, pac);
+                if (dist > best) { best = dist; bestDir = d; }
+              }
+              chosen = bestDir;
             } else {
               // chase bias: choose dir that minimizes manhattan distance to pac
               const target = { x: Math.floor(this.pac.x / TILE), y: Math.floor(this.pac.y / TILE) };
