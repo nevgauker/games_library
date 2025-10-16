@@ -57,34 +57,33 @@
         if (t === 'G') { ghosts.push({ x, y }); grid[y][x] = ' '; ghostHouse = ghostHouse || { x, y }; }
       }
     }
-    // Determine house interior (spaces only) limited to a vertical band around ghosts
+    // Determine house interior as rectangle bounded by walls on ghost row; pick door on bottom row
     const houseInterior = new Set();
     let houseDoor = null;
-    if (ghostHouse && ghosts.length) {
-      const minGY = Math.min.apply(null, ghosts.map(g=>g.y));
-      const maxInteriorY = Math.min(rowsN-1, minGY + 1);
-      const minInteriorY = Math.max(0, minGY - 1);
-      const q = [{ x: ghostHouse.x, y: ghostHouse.y }];
-      const seen = new Set([key(ghostHouse.x, ghostHouse.y)]);
-      const isSpace = (x,y)=> grid[y][x] === ' ';
-      while (q.length) {
-        const { x, y } = q.shift();
-        if (y < minInteriorY || y > maxInteriorY) continue;
-        if (!isSpace(x,y)) continue; // Only spaces count as interior
-        houseInterior.add(key(x, y));
-        const nbs = [ [x-1,y], [x+1,y], [x,y-1], [x,y+1] ];
-        for (const [nx, ny] of nbs) {
-          if (ny<0||ny>=rowsN||nx<0||nx>=colsN) continue;
-          const k = key(nx, ny);
-          if (!seen.has(k) && grid[ny][nx] !== '#') { seen.add(k); q.push({x:nx,y:ny}); }
+    if (ghosts.length) {
+      const rowG = ghosts[0].y;
+      const minGX = Math.min.apply(null, ghosts.map(g=>g.x));
+      const maxGX = Math.max.apply(null, ghosts.map(g=>g.x));
+      let leftWallX = minGX - 1; while (leftWallX > 0 && grid[rowG][leftWallX] !== '#') leftWallX--;
+      let rightWallX = maxGX + 1; while (rightWallX < colsN-1 && grid[rowG][rightWallX] !== '#') rightWallX++;
+      let bottomRow = rowG + 1;
+      for (let y = rowG + 1; y < Math.min(rowsN, rowG + 6); y++) {
+        if (grid[y][leftWallX] === '#' && grid[y][rightWallX] === '#') { bottomRow = y; break; }
+      }
+      for (let y = rowG; y < bottomRow; y++) {
+        for (let x = leftWallX + 1; x < rightWallX; x++) {
+          if (grid[y][x] === ' ') houseInterior.add(key(x, y));
         }
       }
-      // Choose a door tile: scan downward from the average ghost X at row minGY+2 for first space
-      const avgGX = Math.round(ghosts.reduce((s,g)=>s+g.x,0)/ghosts.length);
-      for (let dy = 1; dy <= 4; dy++) {
-        const y = minGY + dy;
-        if (y >= 0 && y < rowsN && isSpace(avgGX,y)) { houseDoor = { x: avgGX, y }; break; }
+      const avgGX = Math.round((minGX + maxGX) / 2);
+      let bestX = null, bestD = Infinity;
+      for (let x = leftWallX + 1; x < rightWallX; x++) {
+        if (grid[bottomRow][x] === ' ') {
+          const d = Math.abs(x - avgGX);
+          if (d < bestD) { bestD = d; bestX = x; }
+        }
       }
+      if (bestX != null) houseDoor = { x: bestX, y: bottomRow };
     }
     return { rows: rowsN, cols: colsN, grid, pellets, powers, pacSpawn, ghosts, ghostHouse, houseInterior, houseDoor };
   }
