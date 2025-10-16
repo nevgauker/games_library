@@ -75,15 +75,16 @@
           if (grid[y][x] === ' ') houseInterior.add(key(x, y));
         }
       }
+      const topRow = Math.max(0, rowG - 1);
       const avgGX = Math.round((minGX + maxGX) / 2);
       let bestX = null, bestD = Infinity;
       for (let x = leftWallX + 1; x < rightWallX; x++) {
-        if (grid[bottomRow][x] === ' ') {
+        if (grid[topRow][x] === ' ') {
           const d = Math.abs(x - avgGX);
           if (d < bestD) { bestD = d; bestX = x; }
         }
       }
-      if (bestX != null) houseDoor = { x: bestX, y: bottomRow };
+      if (bestX != null) houseDoor = { x: bestX, y: topRow };
     }
     return { rows: rowsN, cols: colsN, grid, pellets, powers, pacSpawn, ghosts, ghostHouse, houseInterior, houseDoor };
   }
@@ -241,7 +242,7 @@
         this.ghosts.push({
           x: g0.x * TILE + TILE / 2,
           y: g0.y * TILE + TILE / 2,
-          dir: 'left',
+          dir: 'up',
           color: colors[i],
           frightened: false,
           eaten: false,
@@ -438,8 +439,8 @@
         g.x += gv2.dx * mv;
         g.y += gv2.dy * mv;
         g.x = wrapX(this.level, g.x);
-        // If a leaving ghost crossed below the door row, switch to chase
-        if (g.state === 'leaving' && this.level.houseDoor && Math.floor(g.y / TILE) > this.level.houseDoor.y) {
+        // If a leaving ghost crossed above the door row (exited upward), switch to chase
+        if (g.state === 'leaving' && this.level.houseDoor && Math.floor(g.y / TILE) < this.level.houseDoor.y) {
           g.state = 'chase';
         }
       }
