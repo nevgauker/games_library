@@ -156,10 +156,15 @@
   }
 
   function blockedForPlayer(level, gx, gy) {
-    if (gy < 0 || gy >= level.rows || gx < 0 || gx >= level.cols) return true;
-    if (level.grid[gy][gx] === '#') return true;
-    if (level.houseDoor && gx === level.houseDoor.x && gy === level.houseDoor.y) return true;
-    if (level.houseInterior && level.houseInterior.has(key(gx, gy))) return true;
+    if (gy < 0 || gy >= level.rows) return true;
+    let x = gx;
+    if (gx < 0 || gx >= level.cols) {
+      if (!isTunnelRow(level, gy)) return true;
+      x = (gx + level.cols) % level.cols;
+    }
+    if (level.grid[gy][x] === '#') return true;
+    if (level.houseDoor && x === level.houseDoor.x && gy === level.houseDoor.y) return true;
+    if (level.houseInterior && level.houseInterior.has(key(x, gy))) return true;
     return false;
   }
 
@@ -173,17 +178,22 @@
   }
 
   function blockedForGhost(level, ghost, gx, gy) {
-    if (gy < 0 || gy >= level.rows || gx < 0 || gx >= level.cols) return true;
+    if (gy < 0 || gy >= level.rows) return true;
+    let x = gx;
+    if (gx < 0 || gx >= level.cols) {
+      if (!isTunnelRow(level, gy)) return true;
+      x = (gx + level.cols) % level.cols;
+    }
     // Door: only passable when leaving the house
-    if (level.houseDoor && gx === level.houseDoor.x && gy === level.houseDoor.y) {
+    if (level.houseDoor && x === level.houseDoor.x && gy === level.houseDoor.y) {
       return !(ghost.state === 'leaving');
     }
     // Interior: passable only while leaving; blocked otherwise
-    if (level.houseInterior && level.houseInterior.has(key(gx, gy))) {
+    if (level.houseInterior && level.houseInterior.has(key(x, gy))) {
       return !(ghost.state === 'leaving');
     }
     // Regular walls
-    return level.grid[gy][gx] === '#';
+    return level.grid[gy][x] === '#';
   }
 
   function distance(a, b) {
@@ -294,7 +304,7 @@
       // Pac-Man movement: grid-based with wall collisions
       let gx = Math.floor(this.pac.x / TILE), gy = Math.floor(this.pac.y / TILE);
       const { cx, cy } = centerCoords(this.pac.x, this.pac.y);
-      const tol = 4; // pixels tolerance for turning/snap
+      const tol = 1.5; // tighter tolerance for turning/snap to avoid wall overlap
       if (this.pac.want) {
         const wantV = dirVec(this.pac.want);
         // Snap to tile center on the perpendicular axis if close
@@ -303,8 +313,8 @@
         // Recompute tile indices after snap
         gx = Math.floor(this.pac.x / TILE); gy = Math.floor(this.pac.y / TILE);
         // If desired direction is open from the current tile, allow the turn immediately
-        if (wantV.dy !== 0 && !blockedForPlayer(this.level, gx, gy + wantV.dy)) this.pac.dir = this.pac.want;
-        if (wantV.dx !== 0 && !blockedForPlayer(this.level, gx + wantV.dx, gy)) this.pac.dir = this.pac.want;
+        if (wantV.dy !== 0 && Math.abs(this.pac.x - cx) <= tol && !blockedForPlayer(this.level, gx, gy + wantV.dy)) this.pac.dir = this.pac.want;
+        if (wantV.dx !== 0 && Math.abs(this.pac.y - cy) <= tol && !blockedForPlayer(this.level, gx + wantV.dx, gy)) this.pac.dir = this.pac.want;
       }
       // Allow immediate reversal mid-tile if opposite direction
       if (this.pac.want && this.pac.want === opp(this.pac.dir)) {
@@ -322,7 +332,7 @@
         if (blockedForPlayer(this.level, nx, ny) && this.pac.want && this.pac.want !== this.pac.dir) {
           const wantV = dirVec(this.pac.want);
           const c = centerCoords(this.pac.x, this.pac.y);
-          const tolTurn = 4;
+          const tolTurn = 2;
           if (wantV.dy !== 0) {
             if (Math.abs(this.pac.x - c.cx) <= tolTurn) this.pac.x = c.cx;
             if (!blockedForPlayer(this.level, gx, gy + wantV.dy)) this.pac.dir = this.pac.want;
