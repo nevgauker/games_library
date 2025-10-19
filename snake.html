@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Snake</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Snake</h1>
+      <div class="controls">
+        <button id="pause-btn" type="button" aria-pressed="false" aria-label="Pause/Resume">Pause</button>
+        <button id="wrap-btn" type="button" aria-pressed="false" aria-label="Toggle wrap walls">Wrap</button>
+        <button id="sound-btn" type="button" aria-pressed="false" aria-label="Toggle sound">Sound</button>
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart (R)</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Score: <span id="score">0</span></div>
+        <div>Length: <span id="length">3</span></div>
+        <div>Speed: <span id="speed">1.0x</span></div>
+        <div>Best: <span id="best">—</span></div>
+        <div>Goals: <span id="goals">0/5</span></div>
+        <div>Tip: Arrows/WASD to move. Avoid walls and yourself.</div>
+        <div id="status" aria-live="polite"></div>
+      </section>
+      <section class="backspace-wrap">
+        <canvas id="game" width="384" height="384" aria-label="Snake board"></canvas>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Classic grid snake. Eat apples, grow long. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">Game Over</h2>
+        <p id="modal-message">You crashed. Press Restart to try again.</p>
+        <div class="modal-actions">
+          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/snake.js"></script>
+    <script src="src/snake_ui.js"></script>
+  </body>
+  </html>

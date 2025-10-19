@@ -59,6 +59,8 @@ Project Structure
 - `index.html` – Main game library page
 - `memory.html` – Memory game page (standalone)
 - `checkers.html` – Checkers game page (standalone)
+- `snake.html` – Snake game page (standalone)
+- `packdash.html` – Pack & Dash! office escape (standalone)
 - `utopia.html` – Tiny Utopia cozy idle sandbox
  - `pacman.html` – Pac-Man retro maze chase
 - `src/style.css` – Minimal styling and card flip effect
@@ -66,6 +68,10 @@ Project Structure
 - `src/main.js` – DOM rendering, event wiring, HUD, and interactions
 - `src/checkers.js` – Checkers core (board, turn, move validation)
 - `src/checkers_ui.js` – Checkers UI rendering and interactions
+- `src/snake.js` – Snake engine (grid, snake movement, food, collisions)
+- `src/snake_ui.js` – Snake canvas rendering and input wiring
+- `src/packdash.js` – Pack & Dash! engine (timer, items, boss, coworkers)
+- `src/packdash_ui.js` – Pack & Dash! canvas rendering and interactions
 - `src/utopia.js` – Tiny Utopia ecosystem engine
 - `src/utopia_ui.js` – Tiny Utopia UI, island rendering, ambience
  - `src/pacman.js` – Pac-Man engine (maze, pellets, ghosts, collisions)

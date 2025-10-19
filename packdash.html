@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pack & Dash!</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Pack &amp; Dash!</h1>
+      <div class="controls">
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart (R)</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Score: <span id="score">0</span></div>
+        <div>Time: <span id="time">60</span>s</div>
+        <div>Items: <span id="items-left">0</span></div>
+        <div>Tip: Smile, wave, pack, dash. Elevator awaits!</div>
+        <div id="status" aria-live="polite"></div>
+      </section>
+      <section class="backspace-wrap">
+        <canvas id="game" width="384" height="320" aria-label="Office floor"></canvas>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Grab your stuff, dodge small talk, sprint to the elevator. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">You’re out!</h2>
+        <p id="modal-message">Game Over or maybe Game Restart somewhere new 👋</p>
+        <div class="modal-actions">
+          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/packdash.js"></script>
+    <script src="src/packdash_ui.js"></script>
+  </body>
+  </html>
