@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pack & Dash!</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Micro Racer</h1>
+      <div class="controls">
+        <label>
+          Track:
+          <select id="track-select" aria-label="Select track">
+            <option value="oval">Oval</option>
+            <option value="circuit">Circuit</option>
+            <option value="switch">Switchback</option>
+          </select>
+        </label>
+        <label>
+          AI:
+          <select id="ai-select" aria-label="AI Difficulty">
+            <option value="easy">Easy</option>
+            <option value="normal" selected>Normal</option>
+            <option value="hard">Hard</option>
+          </select>
+        </label>
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart (R)</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Lap: <span id="lap">1</span>/3</div>
+        <div>Position: <span id="pos">1</span>/4</div>
+        <div>Time: <span id="time">0.0</span>s</div>
+        <div>Tip: WASD/Arrows drive. Finish 3 laps first!</div>
+        <div id="status" aria-live="polite"></div>
+      </section>
+      <section class="backspace-wrap">
+        <canvas id="game" width="640" height="360" aria-label="Race track"></canvas>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Tiny top‑down racer. 3 tracks · 3 AI levels · 3 rivals. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">Race Complete</h2>
+        <p id="modal-message">Nice drive!</p>
+        <div class="modal-actions">
+          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/race.js"></script>
+    <script src="src/race_ui.js"></script>
+  </body>
+  </html>
+
