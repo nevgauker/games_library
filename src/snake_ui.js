@@ -51,7 +51,7 @@
   function loadGoals(){ try { return JSON.parse(localStorage.getItem(GOALS_KEY) || '{}'); } catch { return {}; } }
   function saveGoals(g){ localStorage.setItem(GOALS_KEY, JSON.stringify(g)); }
   let goals = loadGoals();
-  let ctx = { eats: 0, length: game.snake.length, score: 0, elapsed: 0, wrapBite: false };
+  let goalCtx = { eats: 0, length: game.snake.length, score: 0, elapsed: 0, wrapBite: false };
   function updateGoalsUI(){
     const unlocked = GOAL_LIST.filter(g => goals[g.key]).length;
     const total = GOAL_LIST.length;
@@ -66,7 +66,7 @@
   function tryUnlock(){
     let changed = false;
     for (const g of GOAL_LIST){
-      if (!goals[g.key] && g.check(ctx)) { goals[g.key] = true; changed = true; toast(`Goal unlocked: ${g.label}`); }
+      if (!goals[g.key] && g.check(goalCtx)) { goals[g.key] = true; changed = true; toast(`Goal unlocked: ${g.label}`); }
     }
     if (changed) { saveGoals(goals); updateGoalsUI(); }
   }
@@ -150,15 +150,15 @@
   document.addEventListener('keydown', onKey, { passive: false });
   window.addEventListener('keydown', onKey, { passive: false });
 
-  game.on('score', s => { scoreEl.textContent = String(s); ctx.score = s; tryUnlock(); });
+  game.on('score', s => { scoreEl.textContent = String(s); goalCtx.score = s; tryUnlock(); });
   game.on('length', n => lengthEl.textContent = String(n));
   game.on('speed', m => speedEl.textContent = `${m.toFixed(1)}x`);
   game.on('eat', () => {
     if (!reduceMotion) gflash = 0.35;
     beep(660, 0.06, 'square');
-    ctx.eats += 1;
-    ctx.length = Math.max(ctx.length, (Number(lengthEl.textContent) || 0));
-    if (game.wrapWalls) ctx.wrapBite = true;
+    goalCtx.eats += 1;
+    goalCtx.length = Math.max(goalCtx.length, (Number(lengthEl.textContent) || 0));
+    if (game.wrapWalls) goalCtx.wrapBite = true;
     tryUnlock();
   });
   game.on('pause', () => { statusEl.textContent = 'Paused'; pauseBtn && pauseBtn.setAttribute('aria-pressed', 'true'); });
@@ -185,7 +185,7 @@
       game.step(dt);
       if (!game.paused) {
         elapsed += dt;
-        ctx.elapsed = elapsed;
+        goalCtx.elapsed = elapsed;
         tryUnlock();
       }
     }
@@ -248,7 +248,7 @@
 
   // Reset context on restart
   const origRestart = restartBtn.onclick;
-  function resetCtx(){ elapsed = 0; ctx = { eats: 0, length: game.snake.length, score: 0, elapsed: 0, wrapBite: false }; }
+  function resetCtx(){ elapsed = 0; goalCtx = { eats: 0, length: game.snake.length, score: 0, elapsed: 0, wrapBite: false }; }
   restartBtn.addEventListener('click', resetCtx);
   modalRestart && modalRestart.addEventListener('click', resetCtx);
 
