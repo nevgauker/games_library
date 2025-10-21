@@ -203,6 +203,42 @@ main { width: min(1100px, 92vw); margin: 0 auto; }
   color: #93c5fd;
   border: 1px solid #253146;
 }
+
+/* ===== Mobile Virtual Joystick (scoped, appears only on touch devices) ===== */
+.vjoy {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  width: 120px;
+  height: 120px;
+  display: none; /* default hidden; shown via media query for touch */
+  z-index: 2000;
+  touch-action: none;
+}
+.vjoy-base {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--panel) 85%, transparent);
+  border: 1px solid rgba(255,255,255,0.12);
+  backdrop-filter: blur(6px);
+  box-shadow: inset 0 0 8px rgba(0,0,0,0.35);
+}
+.vjoy-stick {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+}
+@media (hover: none) and (pointer: coarse) {
+  .vjoy { display: block; }
+}
 [data-theme="light"] .front {
   background: linear-gradient(180deg, var(--card), #eef2ff);
   box-shadow: inset 0 1px 0 rgba(0,0,0,0.03), 0 8px 14px rgba(0,0,0,0.08);

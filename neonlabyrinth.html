@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Neon Labyrinth ’89</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Neon Labyrinth ’89</h1>
+      <div class="controls">
+        <select id="level-select" aria-label="Select level"></select>
+        <button id="sound-btn" type="button" aria-pressed="true" aria-label="Toggle sound">Sound</button>
+        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="restart-btn" type="button">Restart (R)</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Level: <span id="level">1</span>/5</div>
+        <div>Time: <span id="time">00.0</span>s</div>
+        <div>Tip: Arrows/WASD to move. Enter to start.</div>
+        <div id="status"></div>
+      </section>
+      <section class="backspace-wrap">
+        <canvas id="game" width="640" height="480" aria-label="Neon Labyrinth maze"></canvas>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Five timed mazes. Beat the clock! ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <!-- Mobile virtual joystick -->
+    <div id="vjoy" class="vjoy" aria-hidden="true">
+      <div class="vjoy-base">
+        <div class="vjoy-stick"></div>
+      </div>
+    </div>
+
+    <script src="src/neonlabyrinth.js"></script>
+    <script src="src/neonlabyrinth_ui.js"></script>
+  </body>
+  </html>
