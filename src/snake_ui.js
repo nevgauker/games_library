@@ -19,6 +19,7 @@
   const modal = document.getElementById('modal');
   const modalRestart = document.getElementById('modal-restart');
   const modalClose = document.getElementById('modal-close');
+  const vjoy = document.getElementById('vjoy');
 
   const game = new SnakeGame();
   // Match canvas to grid dimensions
@@ -134,6 +135,80 @@
   }
   canvas.addEventListener('touchstart', onTouchStart, { passive: true });
   canvas.addEventListener('touchend', onTouchEnd, { passive: true });
+
+  // Mobile virtual joystick (appears only on coarse pointer devices)
+  (function setupVirtualJoystick(){
+    if (!vjoy) return;
+    const isTouch = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    if (!isTouch) return;
+
+    const base = vjoy.querySelector('.vjoy-base');
+    const stick = vjoy.querySelector('.vjoy-stick');
+    const center = { x: 60, y: 60 };
+    const maxRadius = 40;
+    let dir = null; // 'left'|'right'|'up'|'down'
+    let repeatTimer = null;
+
+    function setStick(dx, dy){
+      const r = Math.hypot(dx, dy);
+      const clamped = r > maxRadius ? maxRadius : r;
+      const angle = Math.atan2(dy, dx);
+      const x = Math.cos(angle) * clamped;
+      const y = Math.sin(angle) * clamped;
+      stick.style.transform = `translate(${x}px, ${y}px)`;
+      stick.style.left = `${center.x}px`;
+      stick.style.top = `${center.y}px`;
+    }
+    function resetStick(){
+      stick.style.left = `${center.x}px`;
+      stick.style.top = `${center.y}px`;
+      stick.style.transform = 'translate(-50%, -50%)';
+    }
+    function computeDir(dx, dy){
+      const dead = 10;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < dead) return null;
+      if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'right' : 'left';
+      return dy > 0 ? 'down' : 'up';
+    }
+    function applyDir(d){ if (!d) return; game.input(d); }
+    function startRepeat(){
+      stopRepeat();
+      if (!dir) return;
+      applyDir(dir);
+      repeatTimer = setInterval(() => applyDir(dir), 120);
+    }
+    function stopRepeat(){ if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; } }
+    function localCoords(touch){
+      const rect = base.getBoundingClientRect();
+      return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    }
+    function onStart(e){
+      const t = e.touches[0]; if (!t) return;
+      const p = localCoords(t);
+      const dx = p.x - center.x, dy = p.y - center.y;
+      setStick(dx, dy);
+      const nd = computeDir(dx, dy);
+      if (nd !== dir){ dir = nd; startRepeat(); }
+      e.preventDefault();
+    }
+    function onMove(e){
+      const t = e.touches[0]; if (!t) return;
+      const p = localCoords(t);
+      const dx = p.x - center.x, dy = p.y - center.y;
+      setStick(dx, dy);
+      const nd = computeDir(dx, dy);
+      if (nd !== dir){ dir = nd; startRepeat(); }
+      e.preventDefault();
+    }
+    function onEnd(){ stopRepeat(); dir = null; resetStick(); }
+
+    base.addEventListener('touchstart', onStart, { passive: false });
+    base.addEventListener('touchmove', onMove, { passive: false });
+    base.addEventListener('touchend', onEnd, { passive: false });
+    base.addEventListener('touchcancel', onEnd, { passive: false });
+
+    resetStick();
+  })();
 
   function onKey(e){
     const key = (e.key || '').toLowerCase();
