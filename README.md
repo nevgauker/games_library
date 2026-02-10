@@ -48,7 +48,7 @@ Overview
 - Simple, functional memory game built with plain HTML/CSS/JS.
 - Clean separation: `src/game.js` contains game logic; `src/main.js` handles UI.
 - Designed for easy extension (themes, scoring, levels, persistence).
- - Additional games: Checkers, Tiny Utopia, Backspace, and Pac-Man (retro canvas).
+ - Additional games: Checkers, Tiny Utopia, Backspace, Pac-Man, Volfied, and Digger (retro canvas).
 
 Getting Started
 - Open `index.html` to view the game library.
@@ -64,6 +64,8 @@ Project Structure
 - `race.html` – Micro Racer (3 tracks × 3 AI levels)
 - `utopia.html` – Tiny Utopia cozy idle sandbox
  - `pacman.html` – Pac-Man retro maze chase
+- `volfied.html` - Volfied-inspired territory capture challenge
+- `digger.html` - Digger-inspired tunnel and emerald arcade
 - `src/style.css` – Minimal styling and card flip effect
 - `src/game.js` – Core game engine (state, shuffling, moves, events)
 - `src/main.js` – DOM rendering, event wiring, HUD, and interactions
@@ -79,6 +81,10 @@ Project Structure
 - `src/utopia_ui.js` – Tiny Utopia UI, island rendering, ambience
  - `src/pacman.js` – Pac-Man engine (maze, pellets, ghosts, collisions)
  - `src/pacman_ui.js` – Pac-Man canvas rendering and input wiring
+- `src/volfied.js` - Volfied game core (territory capture, enemy collision, scoring)
+- `src/volfied_ui.js` - Volfied canvas rendering and controls
+- `src/digger.js` - Digger core (digging, bags, monsters, pump)
+- `src/digger_ui.js` - Digger canvas rendering and controls
 
 Extending the Game
 - New symbol sets: pass a custom `symbols` array when creating `MemoryGame`.

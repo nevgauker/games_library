@@ -1,0 +1,58 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Volfied</title>
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Volfied</h1>
+      <div class="controls">
+        <button id="restart-btn" type="button">Restart (R)</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hud">
+        <div>Level: <span id="level">1</span>/5</div>
+        <div>Capture: <span id="capture">0</span>%</div>
+        <div>Lives: <span id="lives">3</span></div>
+        <div>Score: <span id="score">0</span></div>
+        <div>Tip: Arrows/WASD to cut and claim territory.</div>
+        <div id="status" aria-live="polite"></div>
+      </section>
+      <section class="retro-wrap">
+        <div class="retro-screen">
+          <canvas id="game" width="640" height="400" aria-label="Volfied playfield"></canvas>
+          <div class="scanlines" aria-hidden="true"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        Draw lines to split the field while avoiding enemy cores. ·
+        <a href="index.html">Library</a> ·
+        <a href="agents/software_developer.md">Dev Notes</a> ·
+        <a href="agents/game_designer.md">Design Notes</a>
+      </small>
+    </footer>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title">Volfied</h2>
+        <p id="modal-message"></p>
+        <div class="modal-actions">
+          <button id="modal-next" class="hidden" type="button">Next Level</button>
+          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/volfied.js"></script>
+    <script src="src/volfied_ui.js"></script>
+  </body>
+</html>

@@ -417,9 +417,46 @@ main { width: min(1100px, 92vw); margin: 0 auto; }
 .backspace-wrap { display: grid; place-items: center; padding: 8px 0 24px 0; }
 canvas#game { width: min(960px, 92vw); height: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; background: #00000022; }
 [data-theme="light"] canvas#game { border-color: #e5e7eb; background: #00000011; }
+[data-theme="light"] .retro-screen { border-color: #d1d5db; box-shadow: 0 12px 24px rgba(0,0,0,0.12); }
 [id="ai-level-badge"] {
   font-size: 12px; opacity: 0.9;
   padding: 2px 8px; border-radius: 999px;
   border: 1px solid #374151;
 }
 [data-theme="light"] [id="ai-level-badge"] { border-color: #d1d5db; }
+
+/* Retro frame / CRT effect */
+.retro-wrap {
+  display: grid;
+  place-items: center;
+  padding: 8px 0 24px 0;
+}
+.retro-screen {
+  position: relative;
+  width: min(960px, 92vw);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 24px rgba(0,0,0,0.35);
+  background: #020617;
+}
+.retro-screen canvas#game {
+  width: 100%;
+  display: block;
+  border: 0;
+  border-radius: 0;
+  background: #020617;
+}
+.scanlines {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.04) 0px,
+    rgba(255, 255, 255, 0.04) 1px,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0) 4px
+  );
+  mix-blend-mode: overlay;
+}
