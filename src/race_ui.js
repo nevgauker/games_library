@@ -93,53 +93,69 @@
   }
 
   function render(){
-    // background
-    ctx.fillStyle = '#07111f'; ctx.fillRect(0,0,canvas.width, canvas.height);
-    // track: draw path by connecting waypoints as dashed inner lines
-    const wp = game.track.waypoints;
-    ctx.strokeStyle = '#0ea5e9'; ctx.lineWidth = 2; ctx.setLineDash([8,8]);
-    ctx.beginPath();
-    for (let i=0;i<wp.length;i++){
-      const [x,y]=wp[i]; if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-    }
-    ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
-
-    drawCheckpoints();
-    drawStartLine();
-
-    // cars
+    ctx.drawImage(trackLayer(), 0, 0);
     for (const c of game.cars){ drawCar(c); }
-
+    drawWrongWay();
     drawCountdown();
   }
 
-  // Checkered line across the track at gate 0
-  function drawStartLine(){
-    const g = game.gates[0];
-    const nx = -g.ty, ny = g.tx; // across the track
-    const half = 28, sq = 4;
-    ctx.save();
-    ctx.translate(g.x, g.y); ctx.transform(nx, ny, g.tx, g.ty, 0, 0);
-    for (let i = -half; i < half; i += sq){
-      for (let j = 0; j < 2; j++){
-        ctx.fillStyle = ((i/sq + j) & 1) ? '#f8fafc' : '#0f172a';
-        ctx.fillRect(i, (j-1)*sq, sq, sq);
-      }
+  // The track never changes during a race, so draw it once per track onto an offscreen canvas
+  let trackCache = null, cachedRoad = null;
+  function trackLayer(){
+    if (cachedRoad === game.road) return trackCache;
+    const R = cachedRoad = game.road;
+    const off = trackCache = document.createElement('canvas');
+    off.width = canvas.width; off.height = canvas.height;
+    const g = off.getContext('2d');
+
+    // grass, with a fixed speckle so it doesn't shimmer between restarts
+    g.fillStyle = '#0b2416'; g.fillRect(0, 0, off.width, off.height);
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 1100; i++){
+      g.fillStyle = rnd() < 0.5 ? 'rgba(52,211,153,0.07)' : 'rgba(0,0,0,0.2)';
+      g.fillRect(rnd() * off.width, rnd() * off.height, 2, 2);
     }
-    ctx.restore();
+
+    const path = new Path2D();
+    R.pts.forEach(([x, y], i) => i ? path.lineTo(x, y) : path.moveTo(x, y));
+    path.closePath();
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    // red/white curbs just outside the road edge
+    g.lineWidth = 2*R.half + 8; g.strokeStyle = '#e2e8f0'; g.stroke(path);
+    g.setLineDash([10, 10]); g.strokeStyle = '#e11d48'; g.stroke(path); g.setLineDash([]);
+    // asphalt and a faint centre line
+    g.lineWidth = 2*R.half; g.strokeStyle = '#2b313d'; g.stroke(path);
+    g.lineWidth = 1.5; g.setLineDash([10, 14]); g.strokeStyle = 'rgba(226,232,240,0.22)'; g.stroke(path); g.setLineDash([]);
+
+    drawStartLine(g, R);
+    return off;
   }
 
-  // Faint dots on every checkpoint, the player's next one highlighted
-  function drawCheckpoints(){
+  // Checkered line across the road at the start of the centerline
+  function drawStartLine(g, R){
+    const [x, y] = R.pts[0], [tx, ty] = R.tan[0];
+    const sq = 4, w = Math.ceil(R.half / sq) * sq;
+    g.save();
+    g.translate(x, y); g.transform(-ty, tx, tx, ty, 0, 0); // x: across the road, y: along it
+    for (let i = -w; i < w; i += sq){
+      for (let j = 0; j < 2; j++){
+        g.fillStyle = ((i/sq + j) & 1) ? '#f8fafc' : '#0f172a';
+        g.fillRect(i, (j-1)*sq, sq, sq);
+      }
+    }
+    g.restore();
+  }
+
+  function drawWrongWay(){
     const p = game.player;
-    game.gates.forEach((g, i) => {
-      if (i === 0) return; // the start line marks gate 0
-      const next = !p.finished && p.started && i === p.gate;
-      ctx.beginPath(); ctx.arc(g.x, g.y, next ? 6 : 3, 0, Math.PI*2);
-      ctx.fillStyle = next ? '#34d399' : 'rgba(14,165,233,0.45)';
-      ctx.fill();
-      if (next){ ctx.strokeStyle = 'rgba(52,211,153,0.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(g.x, g.y, 12, 0, Math.PI*2); ctx.stroke(); }
-    });
+    if (p.finished || p.wrongWay < 0.6 || (performance.now() % 600) > 400) return;
+    ctx.save();
+    ctx.font = 'bold 32px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(7,17,31,0.85)'; ctx.fillStyle = '#f43f5e';
+    ctx.strokeText('WRONG WAY', canvas.width/2, 60);
+    ctx.fillText('WRONG WAY', canvas.width/2, 60);
+    ctx.restore();
   }
 
   function drawCountdown(){
