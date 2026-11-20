@@ -6,7 +6,7 @@
     <title>Micro Racer</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
-  <body>
+  <body class="race-page">
     <header class="topbar">
       <h1>Micro Racer</h1>
       <div class="controls">
@@ -26,27 +26,41 @@
             <option value="hard">Hard</option>
           </select>
         </label>
+        <button id="pause-btn" type="button" aria-pressed="false" title="Pause (P)">Pause</button>
+        <button id="sound-btn" type="button" aria-pressed="false" aria-label="Toggle sound">Sound: Off</button>
         <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
-        <button id="restart-btn" type="button">Restart (R)</button>
+        <button id="restart-btn" type="button" title="Restart (R)">Restart</button>
       </div>
     </header>
 
     <main>
-      <section class="hud">
-        <div>Lap: <span id="lap">1</span>/<span id="lap-total">3</span></div>
-        <div>Position: <span id="pos">1</span>/<span id="car-total">4</span></div>
-        <div>Time: <span id="time">0.0</span>s</div>
-        <div>Tip: WASD/Arrows drive, Space = handbrake drift. Grass slows you; shortcuts don't count.</div>
+      <section class="hud race-hud">
+        <div class="race-stat"><span class="race-label">Lap</span><span class="race-val"><span id="lap">1</span><small>/<span id="lap-total">3</span></small></span></div>
+        <div class="race-stat"><span class="race-label">Position</span><span class="race-val"><span id="pos">4th</span><small>/<span id="car-total">4</span></small></span></div>
+        <div class="race-stat"><span class="race-label">Time</span><span class="race-val" id="time">0.0</span></div>
+        <div class="race-stat"><span class="race-label">Last lap</span><span class="race-val" id="last-lap">—</span></div>
+        <div class="race-stat"><span class="race-label">Best lap</span><span class="race-val" id="best-lap">—</span></div>
+        <div class="race-stat"><span class="race-label">Best race</span><span class="race-val" id="best-race">—</span></div>
         <div id="status" aria-live="polite"></div>
       </section>
-      <section class="backspace-wrap">
-        <canvas id="game" width="640" height="360" aria-label="Race track"></canvas>
+      <section class="retro-wrap">
+        <div class="retro-screen">
+          <canvas id="game" width="640" height="360" aria-label="Race track"></canvas>
+          <div class="scanlines" aria-hidden="true"></div>
+        </div>
       </section>
     </main>
 
+    <div id="vjoy" class="vjoy" aria-hidden="true">
+      <div class="vjoy-base">
+        <div class="vjoy-stick"></div>
+      </div>
+    </div>
+    <button id="drift-btn" class="race-drift" type="button" aria-label="Handbrake (drift)">DRIFT</button>
+
     <footer class="footer">
       <small>
-        Tiny top‑down racer. 3 tracks · 3 AI levels · 3 rivals. ·
+        Tiny top-down racer. 3 tracks · 3 AI levels · 3 rivals. Best times are saved in this browser. ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
@@ -54,11 +68,16 @@
     </footer>
 
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <div class="modal-box">
+      <div class="modal-box race-results">
         <h2 id="modal-title">Race Complete</h2>
-        <p id="modal-message">Nice drive!</p>
+        <p id="modal-message"></p>
+        <p id="modal-badges" class="race-badge" hidden></p>
+        <table>
+          <thead><tr><th>Pos</th><th>Driver</th><th>Time</th><th>Best lap</th></tr></thead>
+          <tbody id="results-body"></tbody>
+        </table>
         <div class="modal-actions">
-          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-restart" type="button">Race again (Enter)</button>
           <button id="modal-close" type="button">Close</button>
         </div>
       </div>
@@ -68,4 +87,3 @@
     <script src="src/race_ui.js"></script>
   </body>
 </html>
-
