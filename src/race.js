@@ -15,11 +15,13 @@
   const TRACKS = {
     oval: {
       name: 'Oval', half: 24,
-      waypoints: [ [80,180],[160,60],[320,40],[480,60],[560,180],[480,300],[320,320],[160,300] ]
+      waypoints: [ [80,180],[160,60],[320,40],[480,60],[560,180],[480,300],[320,320],[160,300] ],
+      pads: [ [300,40,-8], [340,320,8] ]
     },
     circuit: {
       name: 'Circuit', half: 22,
-      waypoints: [ [106,210],[120,96],[240,64],[360,96],[544,96],[520,240],[400,280],[256,240],[150,300],[90,276] ]
+      waypoints: [ [106,210],[120,96],[240,64],[360,96],[544,96],[520,240],[400,280],[256,240],[150,300],[90,276] ],
+      pads: [ [420,96,0], [330,262,-6] ]
     },
     switch: {
       name: 'Switchback', half: 20,
@@ -30,7 +32,17 @@
         [325,55],[275,58],
         [245,100],[240,180],[200,232],[158,180],[155,100],
         [120,55],[65,70],[45,150],[55,260]
-      ]
+      ],
+      pads: [ [300,316,0], [592,190,0] ]
+    },
+    figure8: {
+      name: 'Figure 8', half: 20,
+      // Two loops that cross in the middle: watch for traffic at the crossing
+      waypoints: [
+        [500,58],[585,105],[600,180],[585,255],[500,302],[400,250],[320,180],
+        [240,110],[140,58],[55,105],[40,180],[55,255],[140,302],[240,250],[320,180],[400,110]
+      ],
+      pads: [ [270,135,0], [370,135,0] ]
     }
   };
 
@@ -45,6 +57,11 @@
   const PLAYER = { accel: 220, brake: 280, maxSpeed: 170, reverse: 0.4, turn: 4.2, friction: 0.98,
                    slip: 0.55, grassSlip: 0.75, hbSlip: 0.96, hbTurn: 1.4, hbDrag: 0.985 };
   const CAR_RADIUS = 7;     // collision radius
+  const BOOST_TIME = 1.0;   // seconds a boost pad lasts
+  const BOOST_MAX = 1.3;    // top speed multiplier while boosting
+  const BOOST_ACCEL = 400;  // extra acceleration while boosting
+  const PAD_HALF = 8;       // half-width of a boost pad across the road
+  const GHOST_DT = 0.05;    // seconds between recorded ghost samples
   const GRASS_DRAG = { player: 0.93, ai: 0.94 }; // per-frame (60fps) speed decay off the road
 
   function angNorm(a){ while(a>Math.PI) a-=TWOPI; while(a<-Math.PI) a+=TWOPI; return a; }
@@ -105,7 +122,9 @@
       return Math.abs(angNorm(Math.atan2(u[1],u[0]) - Math.atan2(t[1],t[0]))) / SAMPLE_STEP;
     });
     const curv = raw.map((_, i) => { let m=0; for (let k=-3;k<=3;k++) m += raw[(i+k+n)%n]; return m/7; });
-    return { pts, tan, s, L, n, half: track.half, curv };
+    // boost pads snap to the nearest centerline sample; `off` is the sideways offset
+    const pads = (track.pads || []).map(([x, y, off]) => ({ i: nearest({ pts, n }, x, y, 0, null).i, off }));
+    return { pts, tan, s, L, n, half: track.half, curv, pads };
   }
 
   function nearest(road, x, y, from, win){
@@ -133,6 +152,9 @@
       this.lap=1; this.finished=false; this.time=0;
       this.lapStart=0; this.lapTimes=[];
       this.laneOff=0; this.laneTarget=0; this.laneTimer=0; // AI wander
+      this.lat=0;           // signed sideways offset from the centerline
+      this.boost=0;         // seconds of boost left
+      this.rec=[]; this.recT=0; // recorded samples of the current lap (x, y, angle) for the ghost
     }
   }
 
@@ -141,6 +163,7 @@
       super();
       this.width = 640; this.height = 360;
       this.laps = LAPS;
+      this.mode = 'race';
       this.setTrack('oval');
       this.setAI('normal');
       this.restart();
@@ -148,6 +171,8 @@
 
     setTrack(name){ this.trackKey=name; this.track=TRACKS[name]; this.road=buildRoad(this.track); }
     setAI(level){ this.aiLevel=level; this.aiCfg = AI_LEVELS[level]; }
+    // 'race' against three AI cars, or 'trial': alone against the clock (and a ghost, drawn by the UI)
+    setMode(mode){ this.mode = mode === 'trial' ? 'trial' : 'race'; }
 
     spawnCars(){
       const R = this.road;
@@ -159,9 +184,11 @@
         return { x: px - ty*side, y: py + tx*side, a: Math.atan2(ty, tx) };
       };
       const rivals = [ ['Red','#f43f5e'], ['Blue','#60a5fa'], ['Amber','#f59e0b'] ];
-      this.cars = rivals.map(([name,color],i) => new Car({ ...place(slots[i]), name, color, ai:true }));
-      this.player = new Car({ ...place(slots[3]), name:'You', color:'#34d399', isPlayer:true });
+      const trial = this.mode === 'trial';
+      this.cars = trial ? [] : rivals.map(([name,color],i) => new Car({ ...place(slots[i]), name, color, ai:true }));
+      this.player = new Car({ ...place(trial ? [22,0] : slots[3]), name:'You', color:'#34d399', isPlayer:true });
       this.cars.push(this.player);
+      this.player.rec = [this.player.x, this.player.y, this.player.a];
       for (const c of this.cars){
         const hit = nearest(R, c.x, c.y, 0, null);
         c.idx = hit.i; c.dist = this.wrap(R.s[hit.i]); c.offset = hit.d;
@@ -221,6 +248,16 @@
       }
       c.dist += delta; c.idx = i; c.offset = d;
       c.offRoad = d > R.half;
+      c.lat = (c.x - R.pts[i][0]) * -R.tan[i][1] + (c.y - R.pts[i][1]) * R.tan[i][0];
+
+      // boost pads (the short re-trigger guard stops one pad firing on consecutive frames)
+      for (const pad of R.pads){
+        let di = i - pad.i; if (di > R.n/2) di -= R.n; if (di < -R.n/2) di += R.n;
+        if (Math.abs(di) <= 3 && Math.abs(c.lat - pad.off) < PAD_HALF + 3 && c.boost < BOOST_TIME - 0.3){
+          c.boost = BOOST_TIME;
+          if (c.isPlayer) this.emit('boost');
+        }
+      }
 
       // wrong way: moving against the road direction for a moment
       const [tx,ty] = R.tan[i], v = Math.hypot(c.vx, c.vy);
@@ -232,7 +269,10 @@
         const lapTime = c.time - c.lapStart;
         c.lapStart = c.time; c.lapTimes.push(lapTime);
         c.lap = lapsDone + 1;
-        if (c.isPlayer) this.emit('lapTime', { lap: c.lap - 1, time: lapTime });
+        if (c.isPlayer){
+          this.emit('lapTime', { lap: c.lap - 1, time: lapTime, ghost: { dt: GHOST_DT, s: c.rec } });
+          c.rec = [c.x, c.y, c.a]; c.recT = 0;
+        }
         if (c.lap > LAPS) this.finish(c);
         else if (c.isPlayer) this.emit('lap', { lap: c.lap, total: LAPS });
       }
@@ -248,7 +288,10 @@
       // sideways part. Strong grip normally, very little with the handbrake: that's the drift.
       const fx = Math.cos(p.a), fy = Math.sin(p.a);
       let vF = p.vx*fx + p.vy*fy, vS = -p.vx*fy + p.vy*fx;
-      if (inp.throttle > 0) vF = Math.min(C.maxSpeed, vF + C.accel*dt);
+      // above top speed (after a boost) the throttle holds speed and friction bleeds it off
+      const maxS = C.maxSpeed * (p.boost > 0 ? BOOST_MAX : 1);
+      if (p.boost > 0){ vF = Math.max(vF, Math.min(maxS, vF + BOOST_ACCEL*dt)); p.boost = Math.max(0, p.boost - dt); }
+      if (inp.throttle > 0) vF = Math.max(vF, Math.min(maxS, vF + C.accel*dt));
       else if (inp.throttle < 0) vF = Math.max(-C.maxSpeed*C.reverse, vF - C.brake*dt);
       const hb = !!inp.handbrake && Math.abs(vF) > 30;
       vS *= decay(hb ? C.hbSlip : p.offRoad ? C.grassSlip : C.slip, dt);
@@ -264,13 +307,19 @@
       p.skid = Math.min(1, Math.max(0, (Math.abs(vS) - 25) / 60) + (hb ? 0.4 : 0));
       this.move(p, dt, 0.7);
       p.time += dt;
+      // record the lap for the ghost
+      p.recT += dt;
+      while (p.recT >= GHOST_DT){
+        p.recT -= GHOST_DT;
+        p.rec.push(Math.round(p.x*10)/10, Math.round(p.y*10)/10, Math.round(p.a*100)/100);
+      }
       this.trackCar(p, dt);
     }
 
     // Fastest speed the AI should be doing now so it can still make every corner in the next stretch
-    aiSpeedLimit(c, cfg){
+    aiSpeedLimit(c, cfg, maxS){
       const R = this.road, brake = cfg.accel*1.5;
-      let want = cfg.maxSpeed;
+      let want = maxS;
       for (let k=0;k<40;k++){
         const j = (c.idx + k) % R.n;
         const corner = 0.9*cfg.turn / Math.max(R.curv[j], 1e-4); // v = turn rate x radius
@@ -288,20 +337,26 @@
         if (c.laneTimer <= 0){ c.laneTarget = (Math.random()*2-1)*cfg.lane; c.laneTimer = 1 + Math.random()*1.5; }
         this.avoid(c, R);
         c.laneOff += (c.laneTarget - c.laneOff) * Math.min(1, dt*1.5);
-        // steer for a point on the road ahead, further ahead at speed
-        const ahead = Math.round((cfg.look + Math.abs(c.speed)*0.2) / SAMPLE_STEP);
+        // steer for a point on the road ahead, further ahead at speed, but closer on tight bends:
+        // aiming at a far point cuts the corner (by about look^2 / 8R), so keep that within ~6px
+        let kMax = 0;
+        for (let k = 0; k < 20; k++) kMax = Math.max(kMax, R.curv[(c.idx + k) % R.n]);
+        const look = Math.max(16, Math.min(cfg.look + Math.abs(c.speed)*0.2, Math.sqrt(48 / Math.max(kMax, 1e-4))));
+        const ahead = Math.round(look / SAMPLE_STEP);
         const j = (c.idx + ahead) % R.n;
         const [px,py] = R.pts[j], [tx,ty] = R.tan[j];
         const gx = px - ty*c.laneOff, gy = py + tx*c.laneOff;
         const angDiff = angNorm(Math.atan2(gy-c.y, gx-c.x) - c.a);
         c.a += Math.sign(angDiff) * Math.min(Math.abs(angDiff), cfg.turn*dt);
         // speed for upcoming corners, with gentle catch-up against the player
-        let want = this.aiSpeedLimit(c, cfg);
+        const boosting = c.boost > 0;
+        if (boosting) c.boost = Math.max(0, c.boost - dt);
+        let want = this.aiSpeedLimit(c, cfg, cfg.maxSpeed * (boosting ? BOOST_MAX : 1));
         if (!p.finished){
           const gap = (c.dist - p.dist) / (R.L/2);
           want *= 1 - Math.max(-1, Math.min(1, gap)) * cfg.band;
         }
-        if (c.speed < want) c.speed = Math.min(want, c.speed + cfg.accel*dt);
+        if (c.speed < want) c.speed = Math.min(want, c.speed + (cfg.accel + (boosting ? BOOST_ACCEL : 0))*dt);
         else c.speed = Math.max(want, c.speed - cfg.accel*1.5*dt);
         c.speed *= decay(c.offRoad ? GRASS_DRAG.ai : 0.992, dt);
         c.vx = Math.cos(c.a)*c.speed; c.vy = Math.sin(c.a)*c.speed;
@@ -391,5 +446,5 @@
   }
 
   global.RaceGame = RaceGame;
-  global.__RACE_CONST = { TRACKS, AI_LEVELS, LAPS };
+  global.__RACE_CONST = { TRACKS, AI_LEVELS, LAPS, BOOST_TIME };
 })(window);

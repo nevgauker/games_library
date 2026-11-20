@@ -16,14 +16,16 @@
             <option value="oval">Oval</option>
             <option value="circuit">Circuit</option>
             <option value="switch">Switchback</option>
+            <option value="figure8">Figure 8</option>
           </select>
         </label>
         <label>
-          AI:
-          <select id="ai-select" aria-label="AI Difficulty">
-            <option value="easy">Easy</option>
-            <option value="normal" selected>Normal</option>
-            <option value="hard">Hard</option>
+          Mode:
+          <select id="ai-select" aria-label="Mode and AI difficulty">
+            <option value="easy">Race · Easy</option>
+            <option value="normal" selected>Race · Normal</option>
+            <option value="hard">Race · Hard</option>
+            <option value="trial">Time trial</option>
           </select>
         </label>
         <button id="pause-btn" type="button" aria-pressed="false" title="Pause (P)">Pause</button>
@@ -40,7 +42,7 @@
         <div class="race-stat"><span class="race-label">Time</span><span class="race-val" id="time">0.0</span></div>
         <div class="race-stat"><span class="race-label">Last lap</span><span class="race-val" id="last-lap">—</span></div>
         <div class="race-stat"><span class="race-label">Best lap</span><span class="race-val" id="best-lap">—</span></div>
-        <div class="race-stat"><span class="race-label">Best race</span><span class="race-val" id="best-race">—</span></div>
+        <div class="race-stat"><span class="race-label" id="best-race-label">Best race</span><span class="race-val" id="best-race">—</span></div>
         <div id="status" aria-live="polite"></div>
       </section>
       <section class="retro-wrap">
@@ -60,7 +62,7 @@
 
     <footer class="footer">
       <small>
-        Tiny top-down racer. 3 tracks · 3 AI levels · 3 rivals. Best times are saved in this browser. ·
+        Tiny top-down racer. 4 tracks · 3 AI levels · time trial with ghost. Best times are saved in this browser. ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>

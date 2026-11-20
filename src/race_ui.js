@@ -8,7 +8,7 @@
 
   const hud = {
     lap: $('lap'), lapTotal: $('lap-total'), pos: $('pos'), carTotal: $('car-total'),
-    time: $('time'), lastLap: $('last-lap'), bestLap: $('best-lap'), bestRace: $('best-race'), status: $('status'),
+    time: $('time'), bestRaceLabel: $('best-race-label'), lastLap: $('last-lap'), bestLap: $('best-lap'), bestRace: $('best-race'), status: $('status'),
   };
   const modal = $('modal'), modalTitle = $('modal-title'), modalMessage = $('modal-message');
   const modalBadges = $('modal-badges'), resultsBody = $('results-body');
@@ -32,7 +32,9 @@
   const savedTrack = load('race.track', 'oval'), savedAI = load('race.ai', 'normal');
   if (TRACKS[savedTrack]) trackSel.value = savedTrack;
   if ([...aiSel.options].some(o => o.value === savedAI)) aiSel.value = savedAI;
-  game.setTrack(trackSel.value); game.setAI(aiSel.value);
+  // The Mode dropdown picks either an AI level (race) or 'trial' (alone, against your ghost)
+  function applyMode(v){ game.setMode(v === 'trial' ? 'trial' : 'race'); game.setAI(v === 'trial' ? 'normal' : v); }
+  game.setTrack(trackSel.value); applyMode(aiSel.value);
 
   // ---------- Helpers ----------
   function ordinal(n){ const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); }
@@ -43,14 +45,30 @@
   }
   function setText(el, v){ if (el && el.textContent !== v) el.textContent = v; }
   const AI_NAMES = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+  const trial = () => game.mode === 'trial';
+  function angNorm(a){ while (a > Math.PI) a -= Math.PI*2; while (a < -Math.PI) a += Math.PI*2; return a; }
 
   // ---------- Records (per track, in this browser) ----------
   function getRecords(){ try { return JSON.parse(load('race.best.' + game.trackKey, '{}')) || {}; } catch { return {}; } }
   function setRecords(r){ store('race.best.' + game.trackKey, JSON.stringify(r)); }
   let raceBadges = [];
+  // Race and time-trial totals are kept apart (no traffic makes trials faster); the best lap is shared
+  const raceKey = () => trial() ? 'trial' : 'race';
   function showRecords(){
     const r = getRecords();
-    setText(hud.bestLap, fmt(r.lap)); setText(hud.bestRace, fmt(r.race));
+    setText(hud.bestLap, fmt(r.lap)); setText(hud.bestRace, fmt(r[raceKey()]));
+    setText(hud.bestRaceLabel, trial() ? 'Best trial' : 'Best race');
+  }
+
+  // ---------- Ghost: replay of the best lap on this track ----------
+  let ghost = null; // { dt, s: [x, y, angle, ...], time }
+  function loadGhost(){
+    try { const g = JSON.parse(load('race.ghost.' + game.trackKey, 'null')); ghost = g && Array.isArray(g.s) ? g : null; }
+    catch { ghost = null; }
+  }
+  function saveGhost(rec, time){
+    ghost = { dt: rec.dt, s: rec.s.slice(), time };
+    store('race.ghost.' + game.trackKey, JSON.stringify(ghost));
   }
 
   // ---------- Theme ----------
@@ -61,6 +79,7 @@
       startA: '#f8fafc', startB: '#0f172a', skid: '8,10,14', dust: '140,110,60', smoke: '200,205,215',
       shade: 'rgba(2,6,23,0.62)', text: '#f8fafc', sub: '#cbd5e1', outline: 'rgba(7,17,31,0.85)',
       ring: '#f8fafc', accent: '#34d399', warn: '#eab308', danger: '#f43f5e',
+      pad: '#22d3ee', padBase: 'rgba(34,211,238,0.18)', flame: '96,165,250', ghost: '#e2e8f0',
     },
     light: {
       grass: '#8cc47a', speckA: 'rgba(255,255,255,0.2)', speckB: 'rgba(22,101,52,0.16)',
@@ -68,6 +87,7 @@
       startA: '#ffffff', startB: '#111827', skid: '20,22,28', dust: '120,90,40', smoke: '240,242,245',
       shade: 'rgba(248,250,252,0.72)', text: '#0f172a', sub: '#334155', outline: 'rgba(255,255,255,0.92)',
       ring: '#0f172a', accent: '#059669', warn: '#b45309', danger: '#dc2626',
+      pad: '#0e7490', padBase: 'rgba(14,116,144,0.22)', flame: '37,99,235', ghost: '#1e293b',
     },
   };
   const curTheme = () => document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
@@ -107,6 +127,13 @@
     const ac = sound.ac, o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + delay;
     o.type = type; o.frequency.value = freq;
     g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g).connect(sound.master); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sweep(f0, f1, dur){
+    if (!sound.on || !sound.ac) return;
+    const ac = sound.ac, o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.03); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g).connect(sound.master); o.start(t); o.stop(t + dur + 0.02);
   }
   function updateAudio(){
@@ -218,6 +245,8 @@
     closeModal(false);
     clearInput();
     game.restart();
+    loadGhost();
+    setText(hud.carTotal, String(game.cars.length));
     raceBadges = [];
     setText(hud.lastLap, '—');
     showRecords();
@@ -238,7 +267,7 @@
   modalRestart.addEventListener('click', () => resetRace(true));
   modalClose.addEventListener('click', () => closeModal(true));
   trackSel.addEventListener('change', () => { store('race.track', trackSel.value); game.setTrack(trackSel.value); resetRace(false); });
-  aiSel.addEventListener('change', () => { store('race.ai', aiSel.value); game.setAI(aiSel.value); resetRace(false); });
+  aiSel.addEventListener('change', () => { store('race.ai', aiSel.value); applyMode(aiSel.value); resetRace(false); });
 
   // Leaving the tab or window pauses the race (and drops held keys so nothing sticks)
   document.addEventListener('visibilitychange', () => { if (document.hidden){ clearInput(); game.setPaused(true); } });
@@ -246,31 +275,41 @@
 
   // ---------- Engine events ----------
   game.on('lap', ({lap,total}) => setText(hud.lap, String(Math.min(lap,total))));
-  game.on('pos', p => setText(hud.pos, ordinal(p)));
+  game.on('pos', p => setText(hud.pos, trial() ? '—' : ordinal(p)));
+  game.on('boost', () => sweep(220, 900, 0.35));
   game.on('time', t => setText(hud.time, t.toFixed(1)));
   game.on('status', s => setText(hud.status, s || ''));
   game.on('paused', p => { syncControls(); setText(hud.status, p ? 'Paused' : ''); });
   game.on('tick', n => { if (n > 0) blip(440, 0.15, 'square', 0.35); else blip(880, 0.35, 'square', 0.4); });
   game.on('bump', k => { shake = reduceMotion ? 0 : Math.max(shake, 2 + 5*k); blip(80 + 40*k, 0.12, 'triangle', 0.3 + 0.4*k); });
-  game.on('lapTime', ({lap, time}) => {
+  game.on('lapTime', ({lap, time, ghost: rec}) => {
     setText(hud.lastLap, fmt(time));
     const r = getRecords();
+    const delta = r.lap == null ? '' : ` (${time < r.lap ? '−' : '+'}${Math.abs(time - r.lap).toFixed(2)})`;
     if (r.lap == null || time < r.lap){
       r.lap = time; setRecords(r); showRecords();
+      saveGhost(rec, time);
       if (!raceBadges.includes('New best lap!')) raceBadges.push('New best lap!');
-      game.flash(`New best lap! ${fmt(time)}`, 2.5);
+      game.flash(`New best lap! ${fmt(time)}${delta}`, 2.5);
       blip(660, 0.12, 'square', 0.35); blip(990, 0.25, 'square', 0.35, 0.12);
     } else if (lap < LAPS){
-      game.flash(`Lap ${lap}: ${fmt(time)}`, 2);
+      game.flash(`Lap ${lap}: ${fmt(time)}${delta}`, 2);
       blip(660, 0.15, 'square', 0.3);
     }
   });
   game.on('finish', ({pos, time}) => {
     const r = getRecords();
-    if (r.race == null || time < r.race){ r.race = time; setRecords(r); showRecords(); raceBadges.unshift('New track record!'); }
+    const key = raceKey();
+    if (r[key] == null || time < r[key]){ r[key] = time; setRecords(r); showRecords(); raceBadges.unshift(trial() ? 'New best trial!' : 'New track record!'); }
     [523, 659, 784].forEach((f, i) => blip(f, 0.22, 'square', 0.35, i*0.14));
-    modalTitle.textContent = pos === 1 ? 'You Win!' : 'Race Complete';
-    modalMessage.textContent = `You finished ${ordinal(pos)} of ${game.cars.length} · ${fmt(time)} · ${TRACKS[game.trackKey].name}, ${AI_NAMES[game.aiLevel]} AI`;
+    const track = TRACKS[game.trackKey].name;
+    if (trial()){
+      modalTitle.textContent = 'Time Trial Complete';
+      modalMessage.textContent = `${fmt(time)} on ${track} · laps ${game.player.lapTimes.map(fmt).join(' · ')}`;
+    } else {
+      modalTitle.textContent = pos === 1 ? 'You Win!' : 'Race Complete';
+      modalMessage.textContent = `You finished ${ordinal(pos)} of ${game.cars.length} · ${fmt(time)} · ${track}, ${AI_NAMES[game.aiLevel]} AI`;
+    }
     modalBadges.textContent = raceBadges.join(' · ');
     modalBadges.hidden = raceBadges.length === 0;
     renderResults();
@@ -328,12 +367,12 @@
       for (const c of game.cars){
         if (c.finished) continue;
         const v = Math.hypot(c.vx, c.vy);
-        const dust = c.offRoad && v > 30, smoke = c.skid > 0.3;
-        if (!(dust || smoke) || Math.random() > dt*40) continue;
+        const dust = c.offRoad && v > 30, smoke = c.skid > 0.3, flame = c.boost > 0;
+        if (!(dust || smoke || flame) || Math.random() > dt*(flame ? 70 : 40)) continue;
         const [[x, y]] = rearWheels(c);
         particles.push({
           x, y, vx: -c.vx*0.15 + (Math.random()-0.5)*20, vy: -c.vy*0.15 + (Math.random()-0.5)*20,
-          life: 0.6, max: 0.6, r: 2 + Math.random()*2, color: dust ? P.dust : P.smoke,
+          life: 0.6, max: 0.6, r: 2 + Math.random()*2, color: flame ? P.flame : dust ? P.dust : P.smoke,
         });
       }
     }
@@ -373,6 +412,16 @@
     // asphalt and a faint centre line
     g.lineWidth = 2*R.half; g.strokeStyle = P.asphalt; g.stroke(path);
     g.lineWidth = 1.5; g.setLineDash([10, 14]); g.strokeStyle = P.center; g.stroke(path); g.setLineDash([]);
+    // boost pads: three chevrons pointing along the road
+    for (const pad of R.pads){
+      const [px, py] = R.pts[pad.i], [ptx, pty] = R.tan[pad.i];
+      g.save();
+      g.translate(px - pty*pad.off, py + ptx*pad.off); g.rotate(Math.atan2(pty, ptx));
+      g.fillStyle = P.padBase; roundRect(g, -11, -9, 22, 18, 4); g.fill();
+      g.strokeStyle = P.pad; g.lineWidth = 2.5; g.lineCap = 'round'; g.lineJoin = 'round';
+      for (const cx of [-6, 0, 6]){ g.beginPath(); g.moveTo(cx - 3, -6); g.lineTo(cx + 2, 0); g.lineTo(cx - 3, 6); g.stroke(); }
+      g.restore();
+    }
     // checkered start line across the road
     const [x, y] = R.pts[0], [tx, ty] = R.tan[0], sq = 4, w = Math.ceil(R.half / sq) * sq;
     g.save();
@@ -398,6 +447,7 @@
     ctx.drawImage(marks, 0, 0, W, H);
     updateParticles(game.paused ? 0 : dt, P);
     drawParticles();
+    drawGhost(P);
     for (const c of game.cars) drawCar(c, P);
     ctx.restore();
 
@@ -406,6 +456,17 @@
     drawWrongWay(P);
     drawCountdown(P);
     if (game.paused) drawPaused(P);
+  }
+
+  // Time trial: the best lap replayed in step with the current lap
+  function drawGhost(P){
+    const p = game.player;
+    if (!trial() || !ghost || game.waiting || game.countdown > 0 || p.finished) return;
+    const s = ghost.s, n = s.length / 3, k = (p.time - p.lapStart) / ghost.dt, i = Math.floor(k);
+    if (i < 0 || i >= n - 1) return;
+    const f = k - i, j = i*3;
+    const car = { x: s[j] + (s[j+3]-s[j])*f, y: s[j+1] + (s[j+4]-s[j+1])*f, a: s[j+2] + angNorm(s[j+5]-s[j+2])*f, color: P.ghost };
+    ctx.save(); ctx.globalAlpha = 0.4; drawCar(car, P); ctx.restore();
   }
 
   function roundRect(g, x, y, w, h, r){
@@ -444,13 +505,19 @@
     drawYou(P);
     const r = getRecords();
     label('MICRO RACER', W/2, 92, 44, P.accent, P);
-    label(`${TRACKS[game.trackKey].name} · ${AI_NAMES[game.aiLevel]} AI · ${LAPS} laps`, W/2, 140, 18, P.text, P);
-    label(`Best race ${fmt(r.race)}   ·   Best lap ${fmt(r.lap)}`, W/2, 168, 14, P.sub, P);
+    const name = TRACKS[game.trackKey].name;
+    if (trial()){
+      label(`${name} · Time trial · ${LAPS} laps`, W/2, 140, 18, P.text, P);
+      label(`Best trial ${fmt(r.trial)}   ·   Best lap ${fmt(r.lap)}   ·   ${ghost ? 'race your ghost!' : 'set a lap to create your ghost'}`, W/2, 168, 14, P.sub, P);
+    } else {
+      label(`${name} · ${AI_NAMES[game.aiLevel]} AI · ${LAPS} laps`, W/2, 140, 18, P.text, P);
+      label(`Best race ${fmt(r.race)}   ·   Best lap ${fmt(r.lap)}`, W/2, 168, 14, P.sub, P);
+    }
     const blink = reduceMotion || (performance.now() % 1000) < 650;
     if (blink) label(isTouch ? 'Tap to race' : 'Press Enter or ↑ to race', W/2, 222, 22, P.warn, P);
     label(isTouch ? 'Joystick: steer · push up to go, down to brake · hold DRIFT to slide'
                   : 'Arrows / WASD drive · Space handbrake · P pause · R restart', W/2, 262, 13, P.sub, P);
-    label("Stay on the road: grass slows you and shortcuts don't count", W/2, 284, 13, P.sub, P);
+    label("Stay on the road: grass slows you, shortcuts don't count, blue pads boost", W/2, 284, 13, P.sub, P);
   }
 
   function drawPaused(P){
