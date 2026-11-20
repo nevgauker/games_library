@@ -64,6 +64,7 @@
   }
 
   function restart() {
+    clearTimeout(modalTimer);
     closeModal();
     flash = null;
     releaseAll();
@@ -85,7 +86,7 @@
     livesEl.setAttribute("aria-label", `${n} ${n === 1 ? "life" : "lives"}`);
   }
 
-  game.on("level", (v) => (levelEl.textContent = String(v)));
+  game.on("level", (v) => (levelEl.textContent = `${v} · ${game.levelName()}`));
   game.on("score", (v) => {
     scoreEl.textContent = String(v);
     if (v > best) { best = v; bestEl.textContent = String(best); save("digger.best", best); }
@@ -105,16 +106,159 @@
     pauseBtn.textContent = p ? "Resume (P)" : "Pause (P)";
     pauseBtn.setAttribute("aria-pressed", String(p));
   });
-  game.on("win", ({ level, score, reason, final, nextLevel }) => {
-    if (final) openModal("You Win!", `All ${C.MAX_LEVEL} levels cleared. Final score ${score}.${score > bestAtStart ? " New best!" : ""}`, false);
-    else {
-      const how = reason === "monsters" ? "Every monster cleared!" : "Every emerald collected!";
-      openModal("Level Clear", `${how} Level ${level} complete — score ${score}. Ready for level ${nextLevel}?`, true);
-    }
+  // Let the clear/game-over effects play for a moment before the dialog covers them.
+  let modalTimer = null;
+  function openModalSoon(...args) {
+    clearTimeout(modalTimer);
+    modalTimer = setTimeout(() => openModal(...args), 900);
+  }
+  game.on("win", ({ level, name, score, reason, nextLevel, nextName }) => {
+    const how = reason === "monsters" ? "Every monster cleared!" : "Every emerald collected!";
+    const lap = (nextLevel - 1) % C.LEVEL_COUNT === 0 ? " The mine resets — and gets meaner." : "";
+    openModalSoon("Level Clear",
+      `${how} ${name} (level ${level}) done — score ${score}. Next: level ${nextLevel}, ${nextName}.${lap}`, true);
   });
   game.on("lose", ({ level, score }) => {
-    openModal("Game Over", `You reached level ${level} with ${score} points.${score > bestAtStart ? " New best!" : ""}`, false);
+    openModalSoon("Game Over", `You reached level ${level} (${game.levelName()}) with ${score} points.${score > bestAtStart ? " New best!" : ""}`, false);
   });
+
+  // ---- Sound (Web Audio, off by default like the rest of the library) ----
+  const soundBtn = document.getElementById("sound-btn");
+  let audioCtx = null, master = null, soundOn = load("digger.sound", "0") === "1";
+  function ensureAudio() {
+    if (!soundOn) return;
+    if (!audioCtx) {
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        master = audioCtx.createGain();
+        master.gain.value = 0.06;
+        master.connect(audioCtx.destination);
+      } catch (_) { audioCtx = null; return; }
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  }
+  function tone(freq, dur, type = "square", vol = 1, slideTo = null, delay = 0) {
+    if (!soundOn || !audioCtx) return;
+    const t0 = audioCtx.currentTime + delay;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t0);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    o.connect(g).connect(master);
+    o.start(t0);
+    o.stop(t0 + dur + 0.02);
+  }
+  let noiseBuf = null;
+  function noise(dur, vol = 1, cutoff = 1200, delay = 0) {
+    if (!soundOn || !audioCtx) return;
+    if (!noiseBuf) {
+      noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.5, audioCtx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const t0 = audioCtx.currentTime + delay;
+    const src = audioCtx.createBufferSource();
+    src.buffer = noiseBuf;
+    const f = audioCtx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = cutoff;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    src.connect(f).connect(g).connect(master);
+    src.start(t0);
+    src.stop(t0 + dur + 0.02);
+  }
+  const arp = (notes, step, len, type = "square", vol = 0.7) =>
+    notes.forEach((f, i) => tone(f, len, type, vol, null, i * step));
+  const SFX = {
+    emerald: (e) => tone(660 + Math.min(e.streak || 1, 8) * 55, 0.07, "square", 0.55),
+    streak: () => arp([784, 988, 1175, 1568], 0.06, 0.09),
+    dig: () => noise(0.05, 0.18, 700),
+    push: () => noise(0.08, 0.35, 400),
+    pump: () => tone(260, 0.12, "sawtooth", 0.45, 820),
+    stun: () => { tone(520, 0.12, "triangle", 0.8, 300); tone(420, 0.14, "triangle", 0.6, 240, 0.1); },
+    kill: () => { tone(900, 0.14, "square", 0.6, 120); noise(0.12, 0.5, 2000); },
+    shake: () => noise(0.22, 0.25, 3000),
+    land: () => { noise(0.2, 0.9, 260); tone(95, 0.16, "sine", 0.9, 50); },
+    burst: () => { noise(0.2, 0.9, 260); arp([1318, 1568, 2093], 0.05, 0.08, "triangle", 0.5); },
+    gold: () => arp([1046, 1318, 1568, 2093], 0.05, 0.1, "triangle", 0.7),
+    spawn: () => tone(120, 0.35, "sawtooth", 0.3, 70),
+    death: () => tone(700, 0.9, "square", 0.55, 70),
+    gameOver: () => arp([392, 330, 262, 196], 0.18, 0.22, "triangle", 0.8),
+    clear: () => arp([523, 659, 784, 1046, 1318], 0.09, 0.14, "square", 0.6),
+    extraLife: () => arp([659, 784, 988, 1318, 1568, 1976], 0.06, 0.1, "square", 0.6),
+  };
+  function setSound(on, quiet = false) {
+    soundOn = !!on;
+    save("digger.sound", soundOn ? "1" : "0");
+    soundBtn.setAttribute("aria-pressed", String(soundOn));
+    soundBtn.textContent = soundOn ? "Sound: On" : "Sound: Off";
+    if (soundOn && !quiet) { ensureAudio(); tone(880, 0.08, "square", 0.5); }
+  }
+  soundBtn.addEventListener("click", () => { setSound(!soundOn); canvas.focus(); });
+  // Browsers only allow audio after a user gesture.
+  window.addEventListener("pointerdown", ensureAudio, { passive: true });
+  window.addEventListener("keydown", ensureAudio, { passive: true });
+
+  // ---- Particles and screen shake ----
+  const reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const particles = [];
+  let shakeAmp = 0;
+  function burstAt(tx, ty, color, count, speed = 90, gravity = 0, size = 3) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = speed * (0.4 + Math.random() * 0.6);
+      particles.push({
+        x: tx * T + T / 2, y: ty * T + T / 2,
+        vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+        life: 0, max: 0.35 + Math.random() * 0.35,
+        color, size, gravity,
+      });
+    }
+    if (particles.length > 400) particles.splice(0, particles.length - 400);
+  }
+  function shake(amount) { if (!reduceMotion) shakeAmp = Math.max(shakeAmp, amount); }
+  const FX = {
+    emerald: (e) => burstAt(e.x, e.y, "#4ade80", 7, 80),
+    streak: (e) => burstAt(e.x, e.y, "#bbf7d0", 16, 140),
+    dig: (e) => burstAt(e.x, e.y, "#3b5bb5", 4, 50, 240, 3),
+    push: (e) => burstAt(e.x, e.y, "#3b5bb5", 5, 60, 240),
+    stun: (e) => burstAt(e.x, e.y, "#fde047", 6, 70),
+    kill: (e) => { burstAt(e.x, e.y, "#f87171", 16, 150); shake(2); },
+    land: (e) => { burstAt(e.x, e.y + 0.4, "#94a3b8", 8, 70, 200); shake(3); },
+    burst: (e) => { burstAt(e.x, e.y, "#fbbf24", 20, 160, 160); shake(4); },
+    gold: (e) => burstAt(e.x, e.y, "#fde68a", 12, 120),
+    spawn: (e) => burstAt(e.x, e.y, "#ef4444", 8, 60),
+    death: (e) => { burstAt(e.x, e.y, "#22d3ee", 24, 170); shake(6); },
+    extraLife: (e) => burstAt(e.x, e.y, "#22d3ee", 18, 130),
+  };
+  game.on("event", (e) => {
+    if (SFX[e.type]) SFX[e.type](e);
+    if (FX[e.type]) FX[e.type](e);
+  });
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.life += dt;
+      if (p.life >= p.max) { particles.splice(i, 1); continue; }
+      p.vy += p.gravity * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+    shakeAmp = shakeAmp > 0.1 ? shakeAmp * Math.pow(0.002, dt) : 0;
+  }
+  function drawParticles() {
+    for (const p of particles) {
+      ctx.globalAlpha = 1 - p.life / p.max;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+  }
 
   // ---- Keyboard ----
   const held = { up: false, down: false, left: false, right: false };
@@ -163,6 +307,7 @@
 
     if (k === "r") { requestRestart(); return; }
     if (k === "p" || k === "escape") { game.togglePause(); return; }
+    if (k === "m") { setSound(!soundOn); return; }
 
     if (k === " " || e.code === "Space") {
       e.preventDefault();
@@ -459,11 +604,18 @@
       subs.push(isTouch ? "Tap the screen or move to resume" : "P / Esc to resume");
       color = "#f8fafc";
     } else if (game.state === "ready" && game.readyTimer === null) {
-      title = isTouch ? "MOVE TO START" : "PRESS AN ARROW KEY";
+      title = `LEVEL ${game.level} · ${game.levelName().toUpperCase()}`;
+      subs.push(isTouch ? "Move the joystick to start" : "Press an arrow key to start");
       subs.push(isTouch
-        ? `Level ${game.level} · Joystick digs · PUMP stuns, again pops`
-        : `Level ${game.level} · Arrows/WASD dig · Space pumps · P pauses`);
+        ? "Joystick digs · PUMP stuns, again pops"
+        : "Arrows/WASD dig · Space pumps · P pauses · M sound");
       subs.push("Grab every emerald or beat every monster · Push bags sideways");
+    } else if (game.state === "levelClear") {
+      title = "LEVEL CLEAR!";
+      color = "#4ade80";
+    } else if (game.state === "gameOver") {
+      title = "GAME OVER";
+      color = "#f87171";
     } else if (game.state === "ready") {
       title = "READY!";
       subs.push(`${game.lives} ${game.lives === 1 ? "life" : "lives"} left`);
@@ -536,6 +688,12 @@
   }
 
   function render(now) {
+    ctx.fillStyle = "#020617";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    if (shakeAmp > 0) {
+      ctx.translate((Math.random() * 2 - 1) * shakeAmp, (Math.random() * 2 - 1) * shakeAmp);
+    }
     drawField();
     drawNest(now);
     drawEmeralds(now);
@@ -546,7 +704,9 @@
     drawPump();
     drawPlayer(now);
     drawPumpCharge();
+    drawParticles();
     drawPopups(now);
+    ctx.restore();
     drawOverlay();
   }
 
@@ -556,6 +716,7 @@
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     game.step(dt);
+    updateParticles(game.paused ? 0 : dt);
     updateStatus(now);
     if (isTouch) syncPumpButton();
     render(now);
@@ -563,6 +724,8 @@
   }
 
   renderLives(game.lives);
+  setSound(soundOn, true);
+  levelEl.textContent = `${game.level} · ${game.levelName()}`;
   emeraldsEl.textContent = String(game.emeralds.size);
   monstersEl.textContent = String(game.monstersLeft());
   requestAnimationFrame(loop);

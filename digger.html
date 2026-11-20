@@ -10,6 +10,7 @@
     <header class="topbar">
       <h1>Digger</h1>
       <div class="controls">
+        <button id="sound-btn" type="button" aria-pressed="false" aria-label="Toggle sound (M)">Sound: Off</button>
         <button id="pause-btn" type="button" aria-pressed="false">Pause (P)</button>
         <button id="restart-btn" type="button">Restart</button>
       </div>
@@ -35,7 +36,7 @@
 
     <footer class="footer">
       <small>
-        Arrows/WASD dig · Space pumps (stun, then pop) · P pauses · R twice restarts. Clear every emerald or every monster; push bags sideways and drop them on monsters. ·
+        Arrows/WASD dig · Space pumps (stun, then pop) · P pauses · M sound · R twice restarts. Extra life every 10,000 points. Clear every emerald or every monster; push bags sideways and drop them on monsters. ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
@@ -62,6 +63,7 @@
       </div>
     </div>
 
+    <script src="src/digger_levels.js"></script>
     <script src="src/digger.js"></script>
     <script src="src/digger_ui.js"></script>
   </body>

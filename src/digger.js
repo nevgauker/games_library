@@ -2,7 +2,9 @@
   const COLS = 20;
   const ROWS = 15;
   const TILE = 32;
-  const MAX_LEVEL = 5;
+  const LEVELS = global.DIGGER_LEVELS;
+  const EXTRA_LIFE_EVERY = 10000;
+  const MAX_LIVES = 6;
 
   // Movement
   const TUNNEL_STEP = 0.12;   // seconds per tile in open tunnel
@@ -29,17 +31,6 @@
   const PTS_POP = 200;        // pump a stunned monster
   const PTS_CRUSH = 250;      // first monster under a bag; doubles per extra monster
 
-  // Bag slots: each sits in solid dirt with solid dirt directly beneath,
-  // so no bag falls on its own at level start.
-  const BAG_SLOTS = [
-    [4, 4], [12, 4], [8, 7], [15, 7], [5, 10], [13, 10],
-  ];
-
-  // Monster nest (bottom-right pocket). The first tile is the spawn mouth.
-  const NEST = [
-    [18, 13], [17, 13], [18, 12], [17, 12],
-  ];
-
   const DIRS = {
     up: { x: 0, y: -1 },
     down: { x: 0, y: 1 },
@@ -50,7 +41,7 @@
 
   function levelConfig(level) {
     return {
-      total: 4 + level * 2,                          // monsters to clear the level
+      total: Math.min(16, 4 + level * 2),            // monsters to clear the level
       cap: Math.min(2 + level, 6),                   // alive at once
       spawnEvery: Math.max(2.5, 6 - level * 0.7),    // seconds between spawns
       monsterStep: Math.max(0.1, 0.22 - (level - 1) * 0.025),
@@ -106,12 +97,13 @@
       this._startLevel(this.level);
     }
 
-    hasNextLevel() {
-      return this.level < MAX_LEVEL;
+    /** Layouts loop forever; difficulty keeps rising with the level number. */
+    levelName() {
+      return LEVELS[(this.level - 1) % LEVELS.length].name;
     }
 
     nextLevel() {
-      if (this.state !== "levelClear" || !this.hasNextLevel()) return false;
+      if (this.state !== "levelClear") return false;
       this.level += 1;
       this._startLevel(this.level);
       return true;
@@ -158,12 +150,8 @@
       this.bags = [];
       this.monsters = [];
 
-      this.player = { x: 1, y: 1, px: 1, py: 1 };
-      this._carve(1, 1);
-      this._carveSpine();
-      for (const [x, y] of NEST) this._carve(x, y);
-      this._placeEmeralds();
-      this._placeBags();
+      this._loadMap(LEVELS[(level - 1) % LEVELS.length].map);
+      this.player = { x: this.start.x, y: this.start.y, px: this.start.x, py: this.start.y };
       this._spawnMonster(); // one waits in the nest from the start
 
       this.state = null;
@@ -185,7 +173,8 @@
     }
 
     nest() {
-      return { x: NEST[0][0], y: NEST[0][1], flash: this.nestFlash };
+      const [x, y] = this.nestTiles[0];
+      return { x, y, flash: this.nestFlash };
     }
 
     // ---- Level generation ----
@@ -195,33 +184,26 @@
       this.dirt[y][x] = false;
     }
 
-    _carveSpine() {
-      for (let x = 1; x < COLS - 1; x++) this._carve(x, 1);
-      for (let y = 1; y < ROWS - 1; y++) this._carve(1, y);
-      for (let y = 3; y < ROWS - 1; y += 3) {
-        for (let x = 1; x < COLS - 1; x++) this._carve(x, y);
-      }
-    }
-
-    _placeEmeralds() {
-      for (let y = 2; y < ROWS - 1; y++) {
-        for (let x = 2; x < COLS - 1; x++) {
-          if ((x + y) % 2 !== 0) continue;
-          if (!this.dirt[y][x]) continue;
-          this.emeralds.add(key(x, y));
+    _loadMap(map) {
+      this.start = { x: 1, y: 1 };
+      const nestMouth = [];
+      const nestRest = [];
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const c = (map[y] || "")[x] || "#";
+          if (c === "#" || c === "E" || c === "B") {
+            if (c === "E") this.emeralds.add(key(x, y));
+            if (c === "B") this.bags.push(this._newBag(x, y));
+            continue;
+          }
+          this._carve(x, y);
+          if (c === "P") this.start = { x, y };
+          if (c === "N") nestMouth.push([x, y]);
+          if (c === "n") nestRest.push([x, y]);
         }
       }
-    }
-
-    _placeBags() {
-      for (const [x, y] of BAG_SLOTS) {
-        // Defensive validation: a bag must sit in dirt on top of dirt,
-        // and never cover an emerald (which would hide a required pickup).
-        if (!this._isInside(x, y + 1)) continue;
-        if (!this.dirt[y][x] || !this.dirt[y + 1][x]) continue;
-        this.emeralds.delete(key(x, y));
-        this.bags.push(this._newBag(x, y));
-      }
+      this.nestTiles = nestMouth.concat(nestRest);
+      if (this.nestTiles.length === 0) this.nestTiles = [[COLS - 2, ROWS - 2]];
     }
 
     _newBag(x, y) {
@@ -239,13 +221,14 @@
 
     _spawnMonster() {
       if (this.spawned >= this.cfg.total) return false;
-      const spot = NEST.find(([x, y]) =>
+      const spot = this.nestTiles.find(([x, y]) =>
         !this._monsterAt(x, y) && !(this.player.x === x && this.player.y === y) && !this._bagAt(x, y));
       if (!spot) return false;
       const [x, y] = spot;
       this.monsters.push({ x, y, px: x, py: y, alive: true, stun: 0, last: null });
       this.spawned += 1;
       this.nestFlash = 0.5;
+      this._fx("spawn", x, y);
       return true;
     }
 
@@ -290,6 +273,7 @@
       if (this.paused || this.state !== "playing") return;
       if (!this.pumpReady()) return;
       this.pump = { dir: this.lastFacing, len: 0, timer: 0 };
+      this._fx("pump", this.player.x, this.player.y);
     }
 
     setPaused(p) {
@@ -438,9 +422,20 @@
       this._emit("popup", { x, y, text, kind });
     }
 
+    _fx(type, x, y, extra) {
+      this._emit("event", Object.assign({ type, x, y }, extra));
+    }
+
     _addScore(pts) {
+      const before = Math.floor(this.score / EXTRA_LIFE_EVERY);
       this.score += pts;
       this._emit("score", this.score);
+      if (Math.floor(this.score / EXTRA_LIFE_EVERY) > before && this.lives < MAX_LIVES) {
+        this.lives += 1;
+        this._emit("lives", this.lives);
+        this._popup(this.player.x, this.player.y - 1, "EXTRA LIFE", "life");
+        this._fx("extraLife", this.player.x, this.player.y);
+      }
     }
 
     _collectEmerald(x, y) {
@@ -451,9 +446,11 @@
       this.streakTimer = 0;
       this._addScore(PTS_EMERALD);
       this._emit("emeralds", this.emeralds.size);
+      this._fx("emerald", x, y, { streak: this.streak });
       if (this.streak % STREAK_LEN === 0) {
         this._addScore(PTS_STREAK);
         this._popup(x, y, `STREAK +${PTS_STREAK}`, "streak");
+        this._fx("streak", x, y);
       }
     }
 
@@ -467,6 +464,7 @@
       bag.x = tx;
       bag.shaking = false;
       bag.shakeTimer = 0;
+      this._fx("push", tx, bag.y);
       // A bag shoved into dirt crushes the emerald there; the player gets it.
       this._collectEmerald(tx, bag.y);
       return true;
@@ -491,6 +489,7 @@
       if (bag && bag.gold) {
         this._addScore(PTS_GOLD);
         this._popup(nx, ny, `+${PTS_GOLD}`, "gold");
+        this._fx("gold", nx, ny);
         this.bags = this.bags.filter((b) => b !== bag);
       }
 
@@ -498,6 +497,7 @@
       p.y = ny;
       this.playerAnim = 0;
       this.playerMovedThisFrame = true;
+      if (this.dirt[ny][nx]) this._fx("dig", nx, ny, { dx: d.x, dy: d.y });
       this._carve(nx, ny);
       this._collectEmerald(nx, ny);
 
@@ -511,16 +511,16 @@
       if (this.emeralds.size === 0) reason = "emeralds";
       else if (this.killed >= this.cfg.total) reason = "monsters";
       if (!reason) return;
-      const final = !this.hasNextLevel();
       this._setState("levelClear");
+      this._fx("clear", this.player.x, this.player.y);
       this._emit("win", {
         level: this.level,
+        name: this.levelName(),
         score: this.score,
         reason,
-        final,
-        nextLevel: final ? null : this.level + 1,
+        nextLevel: this.level + 1,
+        nextName: LEVELS[this.level % LEVELS.length].name,
       });
-      if (final) this._setState("won");
     }
 
     _belowIsSupport(x, y) {
@@ -543,6 +543,7 @@
           bag.shakeTimer = 0;
           bag.shakeDuration = 1 + Math.random(); // 1-2 seconds warning
           bag.drop = 0;
+          this._fx("shake", bag.x, bag.y);
         }
 
         if (bag.shaking) {
@@ -569,7 +570,9 @@
         if (ny >= ROWS || this.dirt[ny][bag.x] || this._bagAt(bag.x, ny)) {
           if (bag.drop >= 2) {
             bag.gold = true;
-            this._emit("event", { type: "burst", x: bag.x, y: bag.y });
+            this._fx("burst", bag.x, bag.y);
+          } else {
+            this._fx("land", bag.x, bag.y);
           }
           bag.falling = false;
           bag.drop = 0;
@@ -600,6 +603,7 @@
       this.killed += 1;
       this._addScore(pts);
       this._popup(m.x, m.y, label || `+${pts}`, "kill");
+      this._fx("kill", m.x, m.y);
       this._emit("monsters", this.monstersLeft());
     }
 
@@ -701,7 +705,7 @@
             this.monsters = this.monsters.filter((mm) => mm.alive);
           } else {
             m.stun = STUN_TIME;
-            this._emit("event", { type: "stun", x: m.x, y: m.y });
+            this._fx("stun", m.x, m.y);
           }
           this._endPump();
         }
@@ -740,18 +744,19 @@
       this.pump = null;
       this.pumpCooldown = 0;
       this.deathTimer = DEATH_TIME;
+      this._fx("death", this.player.x, this.player.y);
       this._setState("dying");
     }
 
     _afterDeath() {
       if (this.lives <= 0) {
         this._setState("gameOver");
+        this._fx("gameOver", this.player.x, this.player.y);
         this._emit("lose", { level: this.level, score: this.score });
         return;
       }
       // Respawn: player back home, monsters back to the nest, short grace period.
-      this.player = { x: 1, y: 1, px: 1, py: 1 };
-      this._carve(1, 1);
+      this.player = { x: this.start.x, y: this.start.y, px: this.start.x, py: this.start.y };
       this.dir = { x: 0, y: 0 };
       this.queued = null;
       this.playerIdle = true;
@@ -759,7 +764,7 @@
       this.playerAnim = 1;
       this.monsterAcc = 0;
       this.monsters.forEach((m, i) => {
-        const [x, y] = NEST[i % NEST.length];
+        const [x, y] = this.nestTiles[i % this.nestTiles.length];
         m.x = m.px = x;
         m.y = m.py = y;
         m.stun = 0;
@@ -774,5 +779,5 @@
   }
 
   global.DiggerGame = DiggerGame;
-  global.__DIGGER_CONST = { COLS, ROWS, TILE, MAX_LEVEL, STUN_TIME };
+  global.__DIGGER_CONST = { COLS, ROWS, TILE, STUN_TIME, LEVEL_COUNT: LEVELS.length };
 })(window);
