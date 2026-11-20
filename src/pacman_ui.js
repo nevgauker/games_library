@@ -153,8 +153,10 @@
     livesEl.setAttribute('aria-label', `${n} ${n === 1 ? 'life' : 'lives'}`);
   }
   function setStatus(text){ if (statusEl.textContent !== text) statusEl.textContent = text; }
+  let notice = null, noticeUntil = 0;
   function updateStatus(){
     if (game.paused) return setStatus('Paused');
+    if (notice && performance.now() < noticeUntil) return setStatus(notice);
     switch (game.state) {
       case 'ready': return setStatus(game.readyTimer === null ? (isTouch ? 'Move the joystick to start' : 'Press an arrow key to start') : 'Get ready…');
       case 'dying': return setStatus('Caught!');
@@ -169,6 +171,11 @@
     if (s > best) { best = s; bestEl.textContent = String(best); save('pacman.best', best); }
   });
   game.on('lives', renderLives);
+  game.on('extralife', () => {
+    notice = 'Extra life!'; noticeUntil = performance.now() + 2500;
+    updateStatus();
+    setTimeout(() => { notice = null; updateStatus(); }, 2600);
+  });
   game.on('level', n => { levelEl.textContent = String(n); });
   game.on('state', updateStatus);
   game.on('pause', p => {
@@ -195,7 +202,6 @@
   }
 
   // ---- Rendering ----
-  const WALL = '#3b82f6';
   const FRIGHT = '#c4b5fd';
 
   function render(){
@@ -206,11 +212,12 @@
     const st = game.state;
     // Level clear: walls flash white/blue
     const flashOn = st === 'levelClear' && Math.floor(game.clearProgress * 8) % 2 === 1;
-    drawMaze(game.level, flashOn ? '#f8fafc' : WALL);
+    drawMaze(game.level, flashOn ? '#f8fafc' : game.level.wallColor);
+    if (game.bonus && !(game.bonus.timer < 2 && Math.floor(game.clock * 6) % 2 === 0)) drawBonus(game.bonus.kind, game.bonus.x, game.bonus.y);
 
     const showGhosts = st !== 'levelClear' && st !== 'gameOver' && !(st === 'dying' && game.deathProgress > 0.15);
     if (showGhosts) {
-      const ending = game.powerTimer > 0 && game.powerTimer < 2;
+      const ending = game.powerTimer > 0 && game.powerTimer < Math.min(2, game.diff.power * 0.4);
       const blink = ending && Math.floor(game.clock * 6) % 2 === 0;
       for (const g of game.ghosts) {
         if (g.state === 'eyes' || g.state === 'entering') drawEyes(g.x, g.y, g.dir);
@@ -228,7 +235,8 @@
 
   // Floating points where a ghost was eaten (timed by game clock, so they freeze while paused)
   const popups = [];
-  game.on('ghosteaten', ({ x, y, points }) => popups.push({ x, y, text: String(points), born: game.clock }));
+  game.on('ghosteaten', ({ x, y, points }) => popups.push({ x, y, text: String(points), color: '#67e8f9', born: game.clock }));
+  game.on('popup', ({ x, y, points }) => popups.push({ x, y, text: String(points), color: '#fde047', born: game.clock }));
   game.on('state', s => { if (s !== 'playing') popups.length = 0; });
   function drawPopups(){
     const LIFE = 1.0;
@@ -239,7 +247,7 @@
       const p = popups[i], age = game.clock - p.born;
       if (age > LIFE) { popups.splice(i, 1); continue; }
       ctx.globalAlpha = 1 - Math.max(0, age - 0.6) / (LIFE - 0.6);
-      ctx.fillStyle = '#67e8f9';
+      ctx.fillStyle = p.color;
       ctx.fillText(p.text, p.x, p.y - age * 10);
     }
     ctx.globalAlpha = 1;
@@ -252,7 +260,7 @@
       title = isTouch ? 'MOVE TO START' : 'PRESS AN ARROW KEY';
       sub = isTouch ? 'Joystick to steer · Pause button to rest' : 'Arrows / WASD to move · P to pause';
     }
-    else if (game.state === 'ready') { title = 'READY!'; sub = game.levelNum > 1 ? `Level ${game.levelNum}` : null; }
+    else if (game.state === 'ready') { title = 'READY!'; sub = `Level ${game.levelNum} · ${game.level.name}`; }
     else if (game.state === 'levelClear' && game.clearProgress > 0.5) { title = `LEVEL ${game.levelNum} CLEAR`; }
     else if (game.state === 'gameOver') { title = 'GAME OVER'; color = '#f87171'; }
     if (!title) return;
@@ -298,6 +306,55 @@
       const { x, y } = parseKey(k);
       ctx.beginPath(); ctx.arc(x*TILE + TILE/2, y*TILE + TILE/2, 4, 0, Math.PI*2); ctx.fill();
     }
+  }
+
+  // Bonus items: one per level, drawn ~12px wide
+  function drawBonus(kind, x, y){
+    ctx.save();
+    ctx.translate(x, y);
+    switch (kind) {
+      case 'berry':
+        ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(-2.5, 1); ctx.quadraticCurveTo(0, -6, 3, -6); ctx.moveTo(2.5, 2); ctx.lineTo(3, -6); ctx.stroke();
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath(); ctx.arc(-3, 3, 3.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(3, 3.5, 3.2, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'lime':
+        ctx.fillStyle = '#84cc16';
+        ctx.beginPath(); ctx.ellipse(0, 1, 5.5, 4.5, -0.3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#d9f99d';
+        ctx.beginPath(); ctx.arc(-1.8, -0.8, 1.4, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'gem':
+        ctx.fillStyle = '#22d3ee';
+        ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(6, -1); ctx.lineTo(0, 6); ctx.lineTo(-6, -1); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#cffafe';
+        ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(2.5, -1); ctx.lineTo(-2.5, -1); ctx.closePath(); ctx.fill();
+        break;
+      case 'bell':
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath(); ctx.moveTo(-5, 4); ctx.quadraticCurveTo(-5, -6, 0, -6); ctx.quadraticCurveTo(5, -6, 5, 4); ctx.closePath(); ctx.fill();
+        ctx.fillRect(-6, 3, 12, 2);
+        ctx.fillStyle = '#f8fafc';
+        ctx.beginPath(); ctx.arc(0, 6, 1.6, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'star':
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        for (let i = 0; i < 10; i++) {
+          const r = i % 2 ? 2.6 : 6.2, a = -Math.PI / 2 + i * Math.PI / 5;
+          ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        ctx.closePath(); ctx.fill();
+        break;
+      default: // crown
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath(); ctx.moveTo(-6, 4); ctx.lineTo(-6, -4); ctx.lineTo(-3, 0); ctx.lineTo(0, -5); ctx.lineTo(3, 0); ctx.lineTo(6, -4); ctx.lineTo(6, 4); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#f43f5e';
+        ctx.beginPath(); ctx.arc(0, 1.5, 1.4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 
   const DIR_ANGLE = { right: 0, down: Math.PI/2, left: Math.PI, up: -Math.PI/2 };

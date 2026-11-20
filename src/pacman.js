@@ -11,71 +11,182 @@
 (function (global) {
   const TILE = 16; // tile size in pixels
   const STEP = 1 / 60; // physics timestep
-  const PAC_SPEED = 75; // px/s
-  const GHOST_SPEED = 68; // px/s (slower than Pac when not frightened)
-  const FRIGHT_SPEED = 55; // px/s when frightened
   const HOUSE_SPEED = 45; // px/s while scripted out of the house
-  const POWER_TIME = 6.0; // seconds of power pellet
   const SPRITE_RADIUS = TILE * 0.45; // visual radius used to stop before walls
 
   const READY_TIME = 1.6; // countdown after a death / new level
   const DEATH_TIME = 1.5; // death animation length
   const CLEAR_TIME = 2.0; // level-clear flash length
-  const RELEASE_TIMES = [0, 2, 5, 8]; // seconds into a round when each ghost leaves
   const RESPAWN_DELAY = 1.0; // eaten ghost waits this long in the house after its eyes get home
   const EYES_SPEED = 150; // px/s for eaten ghosts heading home
   const TUNNEL_FACTOR = 0.55; // ghost speed multiplier inside side tunnels
   const HIT_STOP = 0.4; // brief freeze when a ghost is eaten
   const GHOST_POINTS = [200, 400, 800, 1600]; // combo within one power pellet
+  const EXTRA_LIFE_AT = 10000; // one bonus life at this score
+  const MAX_LIVES = 5;
 
-  // Ghosts alternate between scattering to their corner and chasing. The timer pauses while frightened.
-  const MODES = [['scatter', 7], ['chase', 20], ['scatter', 7], ['chase', 20], ['scatter', 5], ['chase', Infinity]];
+  // Difficulty per level (the last row repeats forever).
+  //   pac/ghost/fright: speeds in px/s   power: seconds ghosts stay frightened
+  //   release: seconds into a round when each ghost leaves the house
+  //   modes: scatter, chase, scatter, chase, scatter durations, then chase for good
+  //          (the mode clock pauses while ghosts are frightened)
+  const DIFFICULTY = [
+    { pac: 75, ghost: 62, fright: 48, power: 7, release: [0, 3, 7, 11], modes: [7, 20, 7, 20, 5] },
+    { pac: 76, ghost: 66, fright: 50, power: 6, release: [0, 2, 5, 8], modes: [7, 20, 7, 20, 5] },
+    { pac: 78, ghost: 70, fright: 52, power: 5, release: [0, 2, 4, 6], modes: [6, 20, 6, 20, 4] },
+    { pac: 79, ghost: 73, fright: 54, power: 4, release: [0, 1, 3, 5], modes: [5, 20, 5, 25, 3] },
+    { pac: 80, ghost: 76, fright: 55, power: 3, release: [0, 1, 2, 3], modes: [5, 20, 5, 30, 1] },
+    { pac: 80, ghost: 78, fright: 56, power: 2, release: [0, 0.5, 1, 1.5], modes: [5, 20, 5, 30, 1] },
+  ];
+
+  // Bonus item: appears below the house after these many pellets are eaten, for BONUS_TIME seconds
+  const BONUS_AT = [70, 170];
+  const BONUS_TIME = 9;
+  const BONUSES = [
+    { kind: "berry", points: 100 },
+    { kind: "lime", points: 300 },
+    { kind: "gem", points: 500 },
+    { kind: "bell", points: 1000 },
+    { kind: "star", points: 2000 },
+    { kind: "crown", points: 5000 },
+  ];
 
   // Ghost personalities, in spawn order
   //   hunter   - heads straight for Pac
   //   ambusher - aims 4 tiles ahead of Pac to cut him off
   //   guard    - when Pac nears a power pellet, camps it; otherwise presses 2 tiles ahead
   //   wanderer - roams to random spots, but locks on when Pac comes within 6 tiles
-  const PERSONAS = ['hunter', 'ambusher', 'guard', 'wanderer'];
+  const PERSONAS = ["hunter", "ambusher", "guard", "wanderer"];
 
-  // 28 x 28 tiles.
-  // '#' wall, '-' ghost-house door, '.' pellet, 'o' power pellet, ' ' empty,
-  // 'P' Pac spawn, 'G' first ghost (starts outside the door). The other ghosts start in the house.
-  const MAZE = [
-    "############################",
-    "#............##............#",
-    "#.####.#####.##.#####.####.#",
-    "#o####.#####.##.#####.####o#",
-    "#.####.#####.##.#####.####.#",
-    "#..........................#",
-    "#.####.##.########.##.####.#",
-    "#.####.##.########.##.####.#",
-    "#......##....##....##......#",
-    "######.##### ## #####.######",
-    "     #.##### ## #####.#     ",
-    "     #.##    G     ##.#     ",
-    "     #.## ###--### ##.#     ",
-    "######.## #      # ##.######",
-    "      .   #      #   .      ",
-    "######.## #      # ##.######",
-    "     #.## ######## ##.#     ",
-    "     #.##    P     ##.#     ",
-    "     #.##### ## #####.#     ",
-    "######.##### ## #####.######",
-    "#............##............#",
-    "#.####.#####.##.#####.####.#",
-    "#o..##................##..o#",
-    "###.##.##.########.##.##.###",
-    "#......##....##....##......#",
-    "#.##########.##.##########.#",
-    "#..........................#",
-    "############################",
+  // Mazes are 28 x 28 tiles.
+  // "#" wall, "-" ghost-house door, "." pellet, "o" power pellet, " " empty,
+  // "P" Pac spawn (also where bonus items appear), "G" first ghost (starts outside the door).
+  // The other ghosts start in the house.
+  // Symmetric mazes are written as their left 14 columns; mirror() builds the full row and
+  // adds G above the door and P below the house.
+  function mirror(half) {
+    const rows = half.map(r => r + [...r].reverse().join(""));
+    const doorRow = rows.findIndex(r => r.includes("-"));
+    const put = (y, x, c) => { rows[y] = rows[y].slice(0, x) + c + rows[y].slice(x + 1); };
+    put(doorRow - 1, 13, "G");
+    put(doorRow + 5, 13, "P");
+    return rows;
+  }
+
+  // Levels cycle through the mazes two levels at a time
+  const MAZES = [
+    {
+      name: "Arcade Hall",
+      wall: "#3b82f6",
+      rows: [
+        "############################",
+        "#............##............#",
+        "#.####.#####.##.#####.####.#",
+        "#o####.#####.##.#####.####o#",
+        "#.####.#####.##.#####.####.#",
+        "#..........................#",
+        "#.####.##.########.##.####.#",
+        "#.####.##.########.##.####.#",
+        "#......##....##....##......#",
+        "######.##### ## #####.######",
+        "     #.##### ## #####.#     ",
+        "     #.##    G     ##.#     ",
+        "     #.## ###--### ##.#     ",
+        "######.## #      # ##.######",
+        "      .   #      #   .      ",
+        "######.## #      # ##.######",
+        "     #.## ######## ##.#     ",
+        "     #.##    P     ##.#     ",
+        "     #.##### ## #####.#     ",
+        "######.##### ## #####.######",
+        "#............##............#",
+        "#.####.#####.##.#####.####.#",
+        "#o..##................##..o#",
+        "###.##.##.########.##.##.###",
+        "#......##....##....##......#",
+        "#.##########.##.##########.#",
+        "#..........................#",
+        "############################",
+      ],
+    },
+    {
+      name: "Crossroads",
+      wall: "#d946ef",
+      rows: mirror([
+        "##############",
+        "#.....##.....#",
+        "#.###.##.###.#",
+        "#o###.##.###.#",
+        "#.###.##.###.#",
+        "#.............",
+        "#.####.##.####",
+        "#.####.##.####",
+        "#......##....#",
+        "######.#####.#",
+        "     #.#####.#",
+        "     #.##     ",
+        "     #.## ###-",
+        "######.## #   ",
+        "      .   #   ",
+        "######.## #   ",
+        "     #.## ####",
+        "     #.##     ",
+        "     #.#####.#",
+        "######.#####.#",
+        "#.............",
+        "#.####.##.####",
+        "#o........####",
+        "###.##.##.####",
+        "#......##.....",
+        "#.##########.#",
+        "#.............",
+        "##############",
+      ]),
+    },
+    {
+      name: "Lattice",
+      wall: "#22c55e",
+      rows: mirror([
+        "##############",
+        "#.....#......#",
+        "#.###.#.####.#",
+        "#o###.#.####.#",
+        "#.............",
+        "#.###.###.####",
+        "#.....###.####",
+        "###.#####.####",
+        "###...........",
+        "######.#####.#",
+        "     #.#####.#",
+        "     #.##     ",
+        "     #.## ###-",
+        "######.## #   ",
+        "      .   #   ",
+        "######.## #   ",
+        "     #.## ####",
+        "     #.##     ",
+        "     #.#####.#",
+        "######.#####.#",
+        "#............#",
+        "#.####.#####.#",
+        "#o...........#",
+        "###.#####.##.#",
+        "#.............",
+        "#.####.#####.#",
+        "#.............",
+        "##############",
+      ]),
+    },
   ];
 
   const GHOST_COLORS = ['#ff0000', '#ffb8ff', '#00ffff', '#ffb852'];
 
-  function parseLevel(rows) {
-    const grid = rows.map(r => r.split(""));
+  function mazeForLevel(n) { return MAZES[Math.floor((n - 1) / 2) % MAZES.length]; }
+  function difficultyForLevel(n) { return DIFFICULTY[Math.min(n, DIFFICULTY.length) - 1]; }
+  function bonusForLevel(n) { return BONUSES[Math.min(n, BONUSES.length) - 1]; }
+
+  function parseLevel(def) {
+    const grid = def.rows.map(r => r.split(""));
     const rowsN = grid.length, colsN = grid[0].length;
     const pellets = new Set();
     const powers = new Set();
@@ -113,7 +224,11 @@
     const corners = [
       { x: colsN - 2, y: -3 }, { x: 1, y: -3 }, { x: colsN - 1, y: rowsN + 1 }, { x: 0, y: rowsN + 1 },
     ];
-    return { rows: rowsN, cols: colsN, grid, pellets, powers, door, pacSpawn, exit, exitTile, house, tunnel, corridors, corners };
+    return {
+      name: def.name, wallColor: def.wall,
+      rows: rowsN, cols: colsN, grid, pellets, powers, door, pacSpawn, exit, exitTile, house, tunnel, corridors, corners,
+      totalDots: pellets.size + powers.size,
+    };
   }
 
   function key(x, y) { return `${x},${y}`; }
@@ -189,17 +304,31 @@
 
   class PacmanGame {
     constructor() {
-      this.level = parseLevel(MAZE);
-      this.width = this.level.cols * TILE;
-      this.height = this.level.rows * TILE;
       this.score = 0;
       this.lives = 3;
-      this.levelNum = 1;
+      this.extraLifeGiven = false;
       this.clock = 0; // total simulated time, used for animation
       this.acc = 0;
       this.paused = false;
+      this.loadLevel(1);
+      this.width = this.level.cols * TILE;
+      this.height = this.level.rows * TILE;
       this.resetRound();
-      this.setState('ready', null); // wait for the player's first input
+      this.setState("ready", null); // wait for the player's first input
+    }
+
+    // Fresh maze, difficulty and bonus for level n
+    loadLevel(n) {
+      this.levelNum = n;
+      this.level = parseLevel(mazeForLevel(n));
+      this.diff = difficultyForLevel(n);
+      const m = this.diff.modes;
+      this.modes = [["scatter", m[0]], ["chase", m[1]], ["scatter", m[2]], ["chase", m[3]], ["scatter", m[4]], ["chase", Infinity]];
+      this.bonusDef = bonusForLevel(n);
+      this.dotsEaten = 0;
+      this.bonusesSpawned = 0;
+      this.bonus = null; // { x, y, kind, points, timer } while on the board
+      this.emit("level", n);
     }
 
     on(ev, fn) { this._ls = this._ls || new Map(); const a = this._ls.get(ev) || []; a.push(fn); this._ls.set(ev, a); return () => this.off(ev, fn); }
@@ -224,7 +353,8 @@
       this.roundTime = 0;
       this.powerTimer = 0;
       this.modeIndex = 0;
-      this.modeTimer = MODES[0][1];
+      this.modeTimer = this.modes[0][1];
+      this.bonus = null; // a death or new round clears any bonus on the board
       this.combo = 0;
       this.hitStop = 0;
       this.pac = {
@@ -249,7 +379,7 @@
           frightened: false,
           // 'house' | 'leaving' | 'active' | 'eyes' (eaten, heading home) | 'entering' (eyes dropping into house)
           state: outside ? 'active' : 'house',
-          releaseAt: RELEASE_TIMES[i],
+          releaseAt: this.diff.release[i],
           wanderTarget: null,
           wanderTimer: 0,
         };
@@ -260,25 +390,22 @@
     }
 
     restart() {
-      this.level = parseLevel(MAZE);
       this.score = 0;
       this.lives = 3;
-      this.levelNum = 1;
+      this.extraLifeGiven = false;
       this.acc = 0;
       this.paused = false;
+      this.loadLevel(1);
       this.resetRound();
-      this.emit('level', this.levelNum);
-      this.emit('pause', false);
-      this.setState('ready', READY_TIME);
+      this.emit("pause", false);
+      this.setState("ready", READY_TIME);
     }
 
     nextLevel() {
-      this.level = parseLevel(MAZE);
-      this.levelNum += 1;
       this.acc = 0;
+      this.loadLevel(this.levelNum + 1);
       this.resetRound();
-      this.emit('level', this.levelNum);
-      this.setState('ready', READY_TIME);
+      this.setState("ready", READY_TIME);
     }
 
     input(dir) {
@@ -347,7 +474,7 @@
       }
     }
 
-    get mode() { return MODES[this.modeIndex][0]; }
+    get mode() { return this.modes[this.modeIndex][0]; }
 
     tickPlaying(dt) {
       // Short freeze after eating a ghost so the points register
@@ -362,9 +489,9 @@
         }
       } else {
         this.modeTimer -= dt;
-        if (this.modeTimer <= 0 && this.modeIndex < MODES.length - 1) {
+        if (this.modeTimer <= 0 && this.modeIndex < this.modes.length - 1) {
           this.modeIndex += 1;
-          this.modeTimer = MODES[this.modeIndex][1];
+          this.modeTimer = this.modes[this.modeIndex][1];
           // Every roaming ghost turns around: the player's cue that the pressure changed
           for (const g of this.ghosts) if (g.state === 'active') g.dir = opp(g.dir);
           this.emit('mode', this.mode);
@@ -376,8 +503,9 @@
       // Eat pellets/power
       const gx = Math.floor(this.pac.x / TILE), gy = Math.floor(this.pac.y / TILE);
       const k = key(gx, gy);
-      if (this.level.pellets.has(k)) { this.level.pellets.delete(k); this.score += 10; this.emit('score', this.score); }
-      if (this.level.powers.has(k)) { this.level.powers.delete(k); this.score += 50; this.emit('score', this.score); this.powerUp(); }
+      if (this.level.pellets.has(k)) { this.level.pellets.delete(k); this.dotsEaten++; this.addScore(10); }
+      if (this.level.powers.has(k)) { this.level.powers.delete(k); this.dotsEaten++; this.addScore(50); this.powerUp(); }
+      this.updateBonus(dt, gx, gy);
 
       if (this.level.pellets.size === 0 && this.level.powers.size === 0) {
         this.powerTimer = 0;
@@ -397,7 +525,7 @@
           if (g.frightened) {
             const points = GHOST_POINTS[Math.min(this.combo, GHOST_POINTS.length - 1)];
             this.combo += 1;
-            this.score += points; this.emit('score', this.score);
+            this.addScore(points);
             this.emit('ghosteaten', { x: g.x, y: g.y, points, combo: this.combo });
             g.frightened = false;
             if (g.state === 'leaving') { this.parkInHouse(g); } // still in the doorway: straight back in
@@ -436,7 +564,7 @@
         if (!blocked(this.level, rgx + rv.dx, rgy + rv.dy)) this.pac.dir = this.pac.want;
       }
       let pv = dirVec(this.pac.dir);
-      const speed = PAC_SPEED * dt;
+      const speed = this.diff.pac * dt;
       if (pv.dx !== 0 || pv.dy !== 0) {
         gx = Math.floor(this.pac.x / TILE); gy = Math.floor(this.pac.y / TILE);
         let nx = gx + pv.dx, ny = gy + pv.dy;
@@ -522,7 +650,7 @@
 
       // Roaming ghosts and eyes move on the grid
       if (g.persona === 'wanderer') g.wanderTimer -= dt;
-      let speed = g.state === 'eyes' ? EYES_SPEED : g.frightened ? FRIGHT_SPEED : GHOST_SPEED;
+      let speed = g.state === 'eyes' ? EYES_SPEED : g.frightened ? this.diff.fright : this.diff.ghost;
       if (g.state !== 'eyes' && lv.tunnel.has(key(Math.floor(g.x / TILE), Math.floor(g.y / TILE)))) speed *= TUNNEL_FACTOR;
       this.advanceGhost(g, speed * dt);
     }
@@ -632,7 +760,7 @@
     }
 
     powerUp() {
-      this.powerTimer = POWER_TIME;
+      this.powerTimer = this.diff.power;
       this.combo = 0;
       for (const g of this.ghosts) {
         if (g.state === 'eyes' || g.state === 'entering') continue;
@@ -640,8 +768,42 @@
         g.frightened = true;
       }
     }
+
+    addScore(points) {
+      this.score += points;
+      this.emit('score', this.score);
+      if (!this.extraLifeGiven && this.score >= EXTRA_LIFE_AT) {
+        this.extraLifeGiven = true;
+        if (this.lives < MAX_LIVES) { this.lives += 1; this.emit('lives', this.lives); }
+        this.emit('extralife', this.lives);
+      }
+    }
+
+    // Spawn the bonus item at pellet milestones, count it down, and let Pac collect it
+    updateBonus(dt, pgx, pgy) {
+      const lv = this.level;
+      if (!this.bonus && this.bonusesSpawned < BONUS_AT.length && this.dotsEaten >= BONUS_AT[this.bonusesSpawned]) {
+        this.bonusesSpawned += 1;
+        this.bonus = {
+          x: lv.pacSpawn.x * TILE + TILE / 2, y: lv.pacSpawn.y * TILE + TILE / 2,
+          tx: lv.pacSpawn.x, ty: lv.pacSpawn.y,
+          kind: this.bonusDef.kind, points: this.bonusDef.points, timer: BONUS_TIME,
+        };
+        this.emit('bonus', this.bonus);
+      }
+      if (!this.bonus) return;
+      this.bonus.timer -= dt;
+      if (pgx === this.bonus.tx && pgy === this.bonus.ty) {
+        const b = this.bonus;
+        this.bonus = null;
+        this.addScore(b.points);
+        this.emit('popup', { x: b.x, y: b.y, points: b.points, kind: 'bonus' });
+      } else if (this.bonus.timer <= 0) {
+        this.bonus = null;
+      }
+    }
   }
 
   global.PacmanGame = PacmanGame;
-  global.__PACMAN_CONST = { TILE, POWER_TIME };
+  global.__PACMAN_CONST = { TILE };
 })(window);
