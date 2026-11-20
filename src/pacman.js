@@ -503,8 +503,8 @@
       // Eat pellets/power
       const gx = Math.floor(this.pac.x / TILE), gy = Math.floor(this.pac.y / TILE);
       const k = key(gx, gy);
-      if (this.level.pellets.has(k)) { this.level.pellets.delete(k); this.dotsEaten++; this.addScore(10); }
-      if (this.level.powers.has(k)) { this.level.powers.delete(k); this.dotsEaten++; this.addScore(50); this.powerUp(); }
+      if (this.level.pellets.has(k)) { this.level.pellets.delete(k); this.dotsEaten++; this.addScore(10); this.emit('eat', 'pellet'); }
+      if (this.level.powers.has(k)) { this.level.powers.delete(k); this.dotsEaten++; this.addScore(50); this.powerUp(); this.emit('eat', 'power'); }
       this.updateBonus(dt, gx, gy);
 
       if (this.level.pellets.size === 0 && this.level.powers.size === 0) {

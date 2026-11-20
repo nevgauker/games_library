@@ -25,6 +25,81 @@
   function load(k, fallback){ try { const v = localStorage.getItem(k); return v === null ? fallback : v; } catch (_) { return fallback; } }
   function save(k, v){ try { localStorage.setItem(k, String(v)); } catch (_) {} }
 
+  // ---- Sound: tiny Web Audio synth, no audio files ----
+  // The context can only start after a user gesture, so unlock() runs on the first key/tap.
+  const Sound = (function(){
+    let ac = null, master = null, siren = null;
+    let muted = load('pacman.muted', '0') === '1';
+    let lastChomp = 0, chompHigh = false;
+    const VOLUME = 0.22;
+    function unlock(){
+      if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ac = new AC();
+      master = ac.createGain();
+      master.gain.value = muted ? 0 : VOLUME;
+      master.connect(ac.destination);
+    }
+    function tone(freq, { to = null, dur = 0.1, type = 'square', vol = 0.5, at = 0 } = {}){
+      if (!ac || muted) return;
+      const t0 = ac.currentTime + at;
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t0);
+      if (to) o.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+      g.gain.setValueAtTime(vol, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      o.connect(g); g.connect(master);
+      o.start(t0); o.stop(t0 + dur + 0.02);
+    }
+    const seq = (notes, step, opts) => notes.forEach((f, i) => tone(f, { ...opts, at: i * step }));
+    function stopSiren(){
+      if (!siren) return;
+      try { siren.o.stop(); siren.lfo.stop(); } catch (_) {}
+      siren = null;
+    }
+    return {
+      unlock,
+      get muted(){ return muted; },
+      setMuted(m){
+        muted = m; save('pacman.muted', m ? '1' : '0');
+        if (master) master.gain.value = m ? 0 : VOLUME;
+        if (m) stopSiren();
+      },
+      chomp(){
+        const now = performance.now();
+        if (now - lastChomp < 60) return;
+        lastChomp = now; chompHigh = !chompHigh;
+        tone(chompHigh ? 480 : 360, { to: chompHigh ? 360 : 480, dur: 0.07, type: 'triangle', vol: 0.4 });
+      },
+      power(){ tone(180, { to: 720, dur: 0.25, type: 'sawtooth', vol: 0.18 }); },
+      ghost(){ tone(260, { to: 1400, dur: 0.32, type: 'square', vol: 0.2 }); },
+      bonus(){ seq([660, 880, 1320], 0.07, { dur: 0.09, vol: 0.22 }); },
+      extraLife(){ seq([880, 1175, 1568, 1760], 0.09, { dur: 0.14, type: 'triangle', vol: 0.4 }); },
+      start(){ seq([523, 659, 784, 1047, 784, 1047], 0.11, { dur: 0.12, type: 'triangle', vol: 0.35 }); },
+      clear(){ seq([784, 988, 1175, 1568, 1175, 1568], 0.08, { dur: 0.1, type: 'triangle', vol: 0.35 }); },
+      death(){
+        tone(720, { to: 90, dur: 1.1, type: 'sawtooth', vol: 0.22 });
+        tone(140, { to: 60, dur: 0.25, type: 'square', vol: 0.25, at: 1.1 });
+      },
+      // Warbling tone that runs while ghosts are frightened
+      siren(on){
+        if (on && !siren && ac && !muted) {
+          const o = ac.createOscillator(), lfo = ac.createOscillator(), depth = ac.createGain(), g = ac.createGain();
+          o.type = 'triangle'; o.frequency.value = 300;
+          lfo.frequency.value = 7; depth.gain.value = 80;
+          lfo.connect(depth); depth.connect(o.frequency);
+          g.gain.value = 0.07;
+          o.connect(g); g.connect(master);
+          o.start(); lfo.start();
+          siren = { o, lfo };
+        } else if (!on) stopSiren();
+      },
+    };
+  })();
+  ['keydown', 'pointerdown', 'touchstart'].forEach(ev => window.addEventListener(ev, Sound.unlock, { passive: true }));
+
   const game = new PacmanGame();
   let best = parseInt(load('pacman.best', '0'), 10) || 0;
   let bestAtStart = best;
@@ -71,6 +146,34 @@
   pauseBtn.addEventListener('click', () => { game.togglePause(); canvas.focus(); });
   canvas.addEventListener('click', () => { canvas.focus(); if (game.paused) game.setPaused(false); });
 
+  const soundBtn = document.getElementById('sound-btn');
+  function renderSoundBtn(){
+    soundBtn.textContent = Sound.muted ? 'Sound: Off (M)' : 'Sound: On (M)';
+    soundBtn.setAttribute('aria-pressed', String(!Sound.muted));
+  }
+  function toggleSound(){ Sound.unlock(); Sound.setMuted(!Sound.muted); renderSoundBtn(); }
+  soundBtn.addEventListener('click', () => { toggleSound(); canvas.focus(); });
+  renderSoundBtn();
+
+  // Swipe on the maze to steer (touch devices); each 18px of drag counts as a new swipe
+  (function setupSwipe(){
+    canvas.style.touchAction = 'none';
+    let origin = null;
+    canvas.addEventListener('touchstart', e => {
+      const t = e.touches[0]; if (!t) return;
+      origin = { x: t.clientX, y: t.clientY };
+    }, { passive: true });
+    canvas.addEventListener('touchmove', e => {
+      const t = e.touches[0]; if (!t || !origin) return;
+      const dx = t.clientX - origin.x, dy = t.clientY - origin.y;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
+      game.input(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+      origin = { x: t.clientX, y: t.clientY };
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { origin = null; });
+  })();
+
   // Auto-pause when the player looks away
   document.addEventListener('visibilitychange', () => { if (document.hidden) game.setPaused(true); });
   window.addEventListener('blur', () => game.setPaused(true));
@@ -83,6 +186,7 @@
     if (key === 'r' || code === 'KeyR') { restart(); return; }
     if (!modal.classList.contains('hidden')) return; // modal buttons handle their own keys
     if (key === 'p' || key === 'escape' || code === 'KeyP') { game.togglePause(); return; }
+    if (key === 'm' || code === 'KeyM') { toggleSound(); return; }
     if (key === 'arrowleft' || key === 'a' || code === 'KeyA') game.input('left');
     else if (key === 'arrowright' || key === 'd' || code === 'KeyD') game.input('right');
     else if (key === 'arrowup' || key === 'w' || code === 'KeyW') game.input('up');
@@ -158,7 +262,7 @@
     if (game.paused) return setStatus('Paused');
     if (notice && performance.now() < noticeUntil) return setStatus(notice);
     switch (game.state) {
-      case 'ready': return setStatus(game.readyTimer === null ? (isTouch ? 'Move the joystick to start' : 'Press an arrow key to start') : 'Get ready…');
+      case 'ready': return setStatus(game.readyTimer === null ? (isTouch ? 'Swipe or move the joystick to start' : 'Press an arrow key to start') : 'Get ready…');
       case 'dying': return setStatus('Caught!');
       case 'levelClear': return setStatus(`Level ${game.levelNum} clear!`);
       case 'gameOver': return setStatus('Game over');
@@ -191,12 +295,28 @@
   renderLives(game.lives);
   updateStatus();
 
+  // ---- Sound hooks ----
+  let prevState = game.state, prevReadyWaiting = true;
+  game.on('eat', kind => { if (kind === 'power') Sound.power(); else Sound.chomp(); });
+  game.on('ghosteaten', () => Sound.ghost());
+  game.on('popup', () => Sound.bonus());
+  game.on('extralife', () => Sound.extraLife());
+  game.on('death', () => Sound.death());
+  game.on('levelclear', () => Sound.clear());
+  game.on('level', () => Sound.start()); // restart and each new level
+  game.on('state', s => {
+    if (s === 'playing' && prevState === 'ready' && prevReadyWaiting) Sound.start(); // very first start
+    prevReadyWaiting = s === 'ready' && game.readyTimer === null;
+    prevState = s;
+  });
+
   // ---- Main loop ----
   let last = performance.now();
   function loop(t){
     const dt = Math.min(0.05, (t - last) / 1000);
     last = t;
     game.step(dt);
+    Sound.siren(game.state === 'playing' && !game.paused && game.powerTimer > 0);
     render();
     requestAnimationFrame(loop);
   }
@@ -258,7 +378,7 @@
     if (game.paused) { title = 'PAUSED'; sub = isTouch ? 'Tap the maze to resume' : 'P / Esc to resume'; color = '#f8fafc'; }
     else if (game.state === 'ready' && game.readyTimer === null) {
       title = isTouch ? 'MOVE TO START' : 'PRESS AN ARROW KEY';
-      sub = isTouch ? 'Joystick to steer · Pause button to rest' : 'Arrows / WASD to move · P to pause';
+      sub = isTouch ? 'Swipe the maze or use the joystick' : 'Arrows / WASD to move · P to pause';
     }
     else if (game.state === 'ready') { title = 'READY!'; sub = `Level ${game.levelNum} · ${game.level.name}`; }
     else if (game.state === 'levelClear' && game.clearProgress > 0.5) { title = `LEVEL ${game.levelNum} CLEAR`; }
@@ -283,29 +403,80 @@
 
   function parseKey(k){ const p = k.split(','); return { x: +p[0], y: +p[1] }; }
 
-  function drawMaze(level, wallColor){
-    ctx.strokeStyle = wallColor;
-    ctx.lineWidth = 2;
-    for (let y = 0; y < level.rows; y++){
-      for (let x = 0; x < level.cols; x++){
-        if (level.grid[y][x] === '#') ctx.strokeRect(x*TILE + 2, y*TILE + 2, TILE - 4, TILE - 4);
-      }
+  // Walls are traced as continuous outlines once per maze/colour/scale and cached offscreen.
+  // Each wall tile draws an edge on every side that faces open space, inset from the tile edge;
+  // the edge ends are extended or shortened so neighbouring edges meet at convex and concave corners.
+  let wallCacheLevel = null;
+  const wallCache = new Map();
+  function wallLayer(level, color){
+    if (wallCacheLevel !== level) { wallCache.clear(); wallCacheLevel = level; }
+    const k = color + "|" + viewScale;
+    let layer = wallCache.get(k);
+    if (!layer) { layer = buildWallLayer(level, color); wallCache.set(k, layer); }
+    return layer;
+  }
+  function buildWallLayer(level, color){
+    const c = document.createElement("canvas");
+    c.width = Math.round(game.width * viewScale);
+    c.height = Math.round(game.height * viewScale);
+    const g = c.getContext("2d");
+    g.setTransform(viewScale, 0, 0, viewScale, 0, 0);
+    const W = (x, y) => (y < 0 || y >= level.rows || x < 0 || x >= level.cols) ? true : level.grid[y][x] === "#";
+    const I = 4; // inset from the tile edge
+    // Faint fill so wall blocks read as solid
+    g.fillStyle = color;
+    g.globalAlpha = 0.1;
+    for (let y = 0; y < level.rows; y++) for (let x = 0; x < level.cols; x++) {
+      if (W(x, y)) g.fillRect(x * TILE, y * TILE, TILE, TILE);
     }
+    g.globalAlpha = 1;
+    g.beginPath();
+    for (let y = 0; y < level.rows; y++) for (let x = 0; x < level.cols; x++) {
+      if (!W(x, y)) continue;
+      const px = x * TILE, py = y * TILE, T = TILE;
+      // end offset along an edge: convex corner, straight continuation, or concave corner
+      const endH = (side, dx) => !W(x + dx, y) ? (dx < 0 ? px + I : px + T - I)
+        : !W(x + dx, y + side) ? (dx < 0 ? px : px + T) : (dx < 0 ? px - I : px + T + I);
+      const endV = (side, dy) => !W(x, y + dy) ? (dy < 0 ? py + I : py + T - I)
+        : !W(x + side, y + dy) ? (dy < 0 ? py : py + T) : (dy < 0 ? py - I : py + T + I);
+      if (!W(x, y - 1)) { g.moveTo(endH(-1, -1), py + I); g.lineTo(endH(-1, 1), py + I); }
+      if (!W(x, y + 1)) { g.moveTo(endH(1, -1), py + T - I); g.lineTo(endH(1, 1), py + T - I); }
+      if (!W(x - 1, y)) { g.moveTo(px + I, endV(-1, -1)); g.lineTo(px + I, endV(-1, 1)); }
+      if (!W(x + 1, y)) { g.moveTo(px + T - I, endV(1, -1)); g.lineTo(px + T - I, endV(1, 1)); }
+    }
+    g.strokeStyle = color;
+    g.lineWidth = 2;
+    g.lineCap = "round";
+    g.shadowColor = color;
+    g.shadowBlur = 6 * viewScale; // neon glow (shadowBlur ignores the transform)
+    g.stroke();
+    g.shadowBlur = 0;
+    g.stroke(); // second pass keeps the core line crisp
+    return c;
+  }
+
+  function drawMaze(level, wallColor){
+    ctx.drawImage(wallLayer(level, wallColor), 0, 0, game.width, game.height);
     // Ghost-house door
-    ctx.fillStyle = '#f9a8d4';
+    ctx.fillStyle = "#f9a8d4";
     for (const d of level.door) ctx.fillRect(d.x*TILE, d.y*TILE + TILE/2 - 1.5, TILE, 3);
     // Pellets
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = "#f8fafc";
     for (const k of level.pellets){
       const { x, y } = parseKey(k);
       ctx.beginPath(); ctx.arc(x*TILE + TILE/2, y*TILE + TILE/2, 2, 0, Math.PI*2); ctx.fill();
     }
-    // Power pellets
-    ctx.fillStyle = '#fde68a';
+    // Power pellets pulse while the round is live
+    const live = game.state === "playing" && !game.paused;
+    const r = live ? 3.6 + 1.2 * Math.sin(game.clock * 7) : 4;
+    ctx.fillStyle = "#fde68a";
+    ctx.shadowColor = "#fde68a";
+    ctx.shadowBlur = 6 * viewScale;
     for (const k of level.powers){
       const { x, y } = parseKey(k);
-      ctx.beginPath(); ctx.arc(x*TILE + TILE/2, y*TILE + TILE/2, 4, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x*TILE + TILE/2, y*TILE + TILE/2, r, 0, Math.PI*2); ctx.fill();
     }
+    ctx.shadowBlur = 0;
   }
 
   // Bonus items: one per level, drawn ~12px wide
@@ -368,7 +539,17 @@
     ctx.closePath();
     ctx.fill();
   }
-  function drawPac(x, y, dir){ drawPacShape(x, y, DIR_ANGLE[dir] || 0, 0.35 * Math.PI); }
+  // Mouth opens and closes with distance travelled, so it stops chomping against a wall
+  let chompPhase = 0.6, lastPac = null;
+  function drawPac(x, y, dir){
+    if (lastPac && game.state === "playing" && !game.paused) {
+      const moved = Math.abs(x - lastPac.x) + Math.abs(y - lastPac.y);
+      if (moved < TILE) chompPhase += moved * 0.4; // ignore tunnel wrap jumps
+    }
+    lastPac = { x, y };
+    const mouth = (0.04 + 0.3 * Math.abs(Math.sin(chompPhase))) * Math.PI;
+    drawPacShape(x, y, DIR_ANGLE[dir] || 0, mouth);
+  }
   function drawDyingPac(x, y, p){
     // Mouth opens until Pac folds away completely, facing up
     const mouth = 0.35*Math.PI + Math.min(1, p / 0.85) * 0.65*Math.PI;
