@@ -1,9 +1,13 @@
-﻿(function () {
+﻿// Digger UI: canvas rendering, HUD, modal and input wiring
+(function () {
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   const restartBtn = document.getElementById("restart-btn");
+  const pauseBtn = document.getElementById("pause-btn");
+  const pumpBtn = document.getElementById("pump-btn");
   const levelEl = document.getElementById("level");
   const scoreEl = document.getElementById("score");
+  const bestEl = document.getElementById("best");
   const livesEl = document.getElementById("lives");
   const emeraldsEl = document.getElementById("emeralds");
   const statusEl = document.getElementById("status");
@@ -13,218 +17,473 @@
   const modalMessage = document.getElementById("modal-message");
   const modalNext = document.getElementById("modal-next");
   const modalRestart = document.getElementById("modal-restart");
-  const modalClose = document.getElementById("modal-close");
+  const modalLibrary = document.getElementById("modal-library");
 
   const game = new window.DiggerGame();
   const C = window.__DIGGER_CONST;
+  const T = C.TILE;
+  const isTouch = !!(window.matchMedia && window.matchMedia("(hover: none) and (pointer: coarse)").matches);
 
   canvas.width = game.width;
   canvas.height = game.height;
   canvas.tabIndex = 0;
+  setTimeout(() => canvas.focus(), 0);
 
-  let last = performance.now();
+  // ---- Storage (guarded: private windows can throw) ----
+  function load(k, fallback) { try { const v = localStorage.getItem(k); return v === null ? fallback : v; } catch (_) { return fallback; } }
+  function save(k, v) { try { localStorage.setItem(k, String(v)); } catch (_) {} }
 
+  let best = parseInt(load("digger.best", "0"), 10) || 0;
+  let bestAtStart = best;
+  bestEl.textContent = String(best);
+
+  // ---- Status line: state-driven text plus short-lived messages ----
+  let flash = null; // { text, until }
+  function flashStatus(text, ms = 2500) { flash = { text, until: performance.now() + ms }; }
+  function setStatus(text) { if (statusEl.textContent !== text) statusEl.textContent = text; }
+  function updateStatus(now) {
+    if (flash && now > flash.until) flash = null;
+    if (game.paused) return setStatus("Paused");
+    if (flash) return setStatus(flash.text);
+    setStatus("");
+  }
+
+  // ---- Modal ----
+  function modalOpen() { return !modal.classList.contains("hidden"); }
   function openModal(title, message, showNext) {
     modalTitle.textContent = title;
     modalMessage.textContent = message;
     modalNext.classList.toggle("hidden", !showNext);
     modal.classList.remove("hidden");
+    (showNext ? modalNext : modalRestart).focus();
   }
-
   function closeModal() {
     modal.classList.add("hidden");
     canvas.focus();
   }
 
-  function bindHUD() {
-    game.on("level", (v) => (levelEl.textContent = String(v)));
-    game.on("score", (v) => (scoreEl.textContent = String(v)));
-    game.on("lives", (v) => (livesEl.textContent = String(v)));
-    game.on("emeralds", (v) => (emeraldsEl.textContent = String(v)));
-    game.on("status", (v) => (statusEl.textContent = v));
-
-    game.on("win", ({ level, score, final, nextLevel }) => {
-      if (final) openModal("You Win", `Level ${level}/${C.MAX_LEVEL} cleared. Final score ${score}.`, false);
-      else openModal("Level Clear", `Level ${level} complete. Next level ${nextLevel}.`, true);
-    });
-
-    game.on("lose", ({ level, score }) => {
-      openModal("Game Over", `You reached level ${level}. Score ${score}.`, false);
-    });
+  function restart() {
+    closeModal();
+    flash = null;
+    releaseAll();
+    bestAtStart = best;
+    game.restart();
+  }
+  function goNext() {
+    if (game.nextLevel()) { releaseAll(); closeModal(); }
   }
 
-  function drawGrid() {
-    ctx.fillStyle = "#0b1020";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    for (let y = 0; y < C.ROWS; y++) {
-      for (let x = 0; x < C.COLS; x++) {
-        if (game.dirt[y][x]) {
-          ctx.fillStyle = "#1e3a8a";
-          ctx.fillRect(x * C.TILE, y * C.TILE, C.TILE, C.TILE);
-          ctx.strokeStyle = "rgba(59,130,246,0.12)";
-          ctx.strokeRect(x * C.TILE + 2, y * C.TILE + 2, C.TILE - 4, C.TILE - 4);
-        } else {
-          ctx.fillStyle = "#020617";
-          ctx.fillRect(x * C.TILE, y * C.TILE, C.TILE, C.TILE);
-        }
-      }
+  // ---- HUD ----
+  function renderLives(n) {
+    livesEl.replaceChildren();
+    for (let i = 0; i < Math.max(0, n); i++) {
+      const s = document.createElement("span");
+      s.className = "life-icon";
+      livesEl.appendChild(s);
     }
+    livesEl.setAttribute("aria-label", `${n} ${n === 1 ? "life" : "lives"}`);
   }
 
-  function drawEmeralds() {
-    for (const k of game.emeralds) {
-      const p = k.split(",");
-      const x = Number(p[0]);
-      const y = Number(p[1]);
-      const cx = x * C.TILE + C.TILE / 2;
-      const cy = y * C.TILE + C.TILE / 2;
-      ctx.fillStyle = "#22c55e";
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - 9);
-      ctx.lineTo(cx + 8, cy);
-      ctx.lineTo(cx, cy + 9);
-      ctx.lineTo(cx - 8, cy);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
+  game.on("level", (v) => (levelEl.textContent = String(v)));
+  game.on("score", (v) => {
+    scoreEl.textContent = String(v);
+    if (v > best) { best = v; bestEl.textContent = String(best); save("digger.best", best); }
+  });
+  game.on("lives", renderLives);
+  game.on("emeralds", (v) => (emeraldsEl.textContent = String(v)));
+  game.on("status", (v) => flashStatus(v));
+  game.on("pause", (p) => {
+    pauseBtn.textContent = p ? "Resume (P)" : "Pause (P)";
+    pauseBtn.setAttribute("aria-pressed", String(p));
+  });
+  game.on("win", ({ level, score, final, nextLevel }) => {
+    if (final) openModal("You Win!", `All ${C.MAX_LEVEL} levels cleared. Final score ${score}.${score > bestAtStart ? " New best!" : ""}`, false);
+    else openModal("Level Clear", `Level ${level} complete — score ${score}. Ready for level ${nextLevel}?`, true);
+  });
+  game.on("lose", ({ level, score }) => {
+    openModal("Game Over", `You reached level ${level} with ${score} points.${score > bestAtStart ? " New best!" : ""}`, false);
+  });
 
-  function drawBags() {
-    for (const b of game.bags) {
-      const shakeOffset = b.shaking ? ((Math.floor(b.shakeTimer * 24) % 2 === 0) ? -2 : 2) : 0;
-      const x = b.x * C.TILE + shakeOffset;
-      const y = b.y * C.TILE;
-      if (b.gold) {
-        ctx.fillStyle = "#f59e0b";
-        ctx.fillRect(x + 4, y + 4, C.TILE - 8, C.TILE - 8);
-      } else {
-        ctx.fillStyle = "#a16207";
-        ctx.fillRect(x + 5, y + 2, C.TILE - 10, C.TILE - 4);
-      }
-    }
-  }
-
-  function drawMonsters() {
-    for (const m of game.monsters) {
-      if (!m.alive) continue;
-      const x = m.x * C.TILE;
-      const y = m.y * C.TILE;
-      ctx.fillStyle = "#ef4444";
-      ctx.fillRect(x + 6, y + 6, C.TILE - 12, C.TILE - 12);
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(x + 10, y + 11, 4, 4);
-      ctx.fillRect(x + 18, y + 11, 4, 4);
-    }
-  }
-
-  function drawPump() {
-    if (!game.pump) return;
-    const p = game.player;
-    ctx.fillStyle = "#fbbf24";
-    for (let i = 1; i <= game.pump.len; i++) {
-      let x = p.x;
-      let y = p.y;
-      if (game.pump.dir === "right") x += i;
-      if (game.pump.dir === "left") x -= i;
-      if (game.pump.dir === "down") y += i;
-      if (game.pump.dir === "up") y -= i;
-      if (x < 0 || y < 0 || x >= C.COLS || y >= C.ROWS) break;
-      ctx.fillRect(x * C.TILE + 10, y * C.TILE + 10, C.TILE - 20, C.TILE - 20);
-    }
-  }
-
-  function drawPlayer() {
-    const x = game.player.x * C.TILE;
-    const y = game.player.y * C.TILE;
-    ctx.fillStyle = "#22d3ee";
-    ctx.fillRect(x + 6, y + 6, C.TILE - 12, C.TILE - 12);
-  }
-
-  function render() {
-    drawGrid();
-    drawEmeralds();
-    drawBags();
-    drawMonsters();
-    drawPump();
-    drawPlayer();
-  }
-
-  function loop(now) {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    game.step(dt);
-    render();
-    requestAnimationFrame(loop);
-  }
-
+  // ---- Keyboard ----
   const held = { up: false, down: false, left: false, right: false };
+  const KEY_DIR = {
+    arrowup: "up", w: "up",
+    arrowdown: "down", s: "down",
+    arrowleft: "left", a: "left",
+    arrowright: "right", d: "right",
+  };
+  const VEC = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  let lastPressed = null;
 
-  function applyHeldDirection() {
-    if (held.up && !held.down) return game.setDirection(0, -1);
-    if (held.down && !held.up) return game.setDirection(0, 1);
-    if (held.left && !held.right) return game.setDirection(-1, 0);
-    if (held.right && !held.left) return game.setDirection(1, 0);
+  function releaseAll() {
+    held.up = held.down = held.left = held.right = false;
+    lastPressed = null;
     game.setDirection(0, 0);
   }
 
+  function applyHeldDirection() {
+    // The most recently pressed key wins while it is still held.
+    if (lastPressed && held[lastPressed]) return game.setDirection(...VEC[lastPressed]);
+    for (const d of ["up", "down", "left", "right"]) if (held[d]) return game.setDirection(...VEC[d]);
+    game.setDirection(0, 0);
+  }
+
+  let restartArmedUntil = 0;
+  function requestRestart() {
+    const now = performance.now();
+    if (!game.inProgress() || now < restartArmedUntil) { restartArmedUntil = 0; restart(); return; }
+    restartArmedUntil = now + 1500;
+    flashStatus("Press R again to restart", 1500);
+  }
+
   function onKeyDown(e) {
-    const k = e.key.toLowerCase();
+    const k = (e.key || "").toLowerCase();
     if (k.startsWith("arrow")) e.preventDefault();
 
-    if (k === "r") {
-      closeModal();
-      game.restart();
-      return;
+    if (modalOpen()) {
+      if (k === "r") { restart(); e.preventDefault(); }
+      else if (k === "enter" && !(document.activeElement instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        if (!modalNext.classList.contains("hidden")) goNext(); else restart();
+      }
+      return; // focused buttons handle Enter/Space themselves
     }
+
+    if (k === "r") { requestRestart(); return; }
+    if (k === "p" || k === "escape") { game.togglePause(); return; }
 
     if (k === " " || e.code === "Space") {
       e.preventDefault();
-      game.firePump();
+      if (game.paused) game.setPaused(false);
+      else game.firePump();
       return;
     }
 
-    if (k === "enter" && !modal.classList.contains("hidden") && game.hasNextLevel()) {
-      if (game.nextLevel()) closeModal();
-      return;
+    const d = KEY_DIR[k];
+    if (!d) return;
+    if (game.paused) game.setPaused(false);
+    held[d] = true;
+    if (!e.repeat) {
+      lastPressed = d;
+      game.nudge(...VEC[d]); // guarantees a step for quick taps
     }
-
-    if (k === "arrowup" || k === "w") held.up = true;
-    if (k === "arrowdown" || k === "s") held.down = true;
-    if (k === "arrowleft" || k === "a") held.left = true;
-    if (k === "arrowright" || k === "d") held.right = true;
     applyHeldDirection();
   }
 
   function onKeyUp(e) {
-    const k = e.key.toLowerCase();
-    if (k === "arrowup" || k === "w") held.up = false;
-    if (k === "arrowdown" || k === "s") held.down = false;
-    if (k === "arrowleft" || k === "a") held.left = false;
-    if (k === "arrowright" || k === "d") held.right = false;
+    const d = KEY_DIR[(e.key || "").toLowerCase()];
+    if (!d) return;
+    held[d] = false;
     applyHeldDirection();
   }
 
-  restartBtn.addEventListener("click", () => {
-    closeModal();
-    game.restart();
-  });
-
-  modalRestart.addEventListener("click", () => {
-    closeModal();
-    game.restart();
-  });
-
-  modalNext.addEventListener("click", () => {
-    if (game.nextLevel()) closeModal();
-  });
-
-  modalClose.addEventListener("click", closeModal);
-
   window.addEventListener("keydown", onKeyDown, { passive: false });
   window.addEventListener("keyup", onKeyUp, { passive: false });
-  canvas.addEventListener("click", () => canvas.focus());
 
-  bindHUD();
+  // ---- Buttons / focus ----
+  restartBtn.addEventListener("click", restart);
+  modalRestart.addEventListener("click", restart);
+  modalNext.addEventListener("click", goNext);
+  modalLibrary.addEventListener("click", () => { window.location.href = "index.html"; });
+  pauseBtn.addEventListener("click", () => { game.togglePause(); canvas.focus(); });
+  canvas.addEventListener("click", () => { canvas.focus(); if (game.paused) game.setPaused(false); });
+
+  // Auto-pause when the player looks away (and drop held keys, whose keyup we'll miss)
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { game.setPaused(true); releaseAll(); } });
+  window.addEventListener("blur", () => { game.setPaused(true); releaseAll(); });
+
+  // ---- Touch controls: joystick + pump button ----
+  (function setupTouch() {
+    if (!isTouch) return;
+    const vjoy = document.getElementById("vjoy");
+    const base = vjoy.querySelector(".vjoy-base");
+    const stick = vjoy.querySelector(".vjoy-stick");
+    const center = { x: 60, y: 60 };
+    const maxRadius = 40;
+    let dir = null;
+
+    function setStick(dx, dy) {
+      const r = Math.min(maxRadius, Math.hypot(dx, dy));
+      const a = Math.atan2(dy, dx);
+      stick.style.transform = `translate(calc(-50% + ${Math.cos(a) * r}px), calc(-50% + ${Math.sin(a) * r}px))`;
+    }
+    function resetStick() { stick.style.transform = "translate(-50%, -50%)"; }
+    function computeDir(dx, dy) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return null;
+      if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
+      return dy > 0 ? "down" : "up";
+    }
+    function onTouch(e) {
+      const t = e.touches[0];
+      if (!t) return;
+      const rect = base.getBoundingClientRect();
+      const dx = t.clientX - rect.left - center.x;
+      const dy = t.clientY - rect.top - center.y;
+      setStick(dx, dy);
+      const nd = computeDir(dx, dy);
+      if (nd !== dir) {
+        dir = nd;
+        if (dir) {
+          if (game.paused) game.setPaused(false);
+          game.nudge(...VEC[dir]);
+          game.setDirection(...VEC[dir]);
+        } else game.setDirection(0, 0);
+      }
+      e.preventDefault();
+    }
+    function onEnd() { dir = null; game.setDirection(0, 0); resetStick(); }
+    base.addEventListener("touchstart", onTouch, { passive: false });
+    base.addEventListener("touchmove", onTouch, { passive: false });
+    base.addEventListener("touchend", onEnd, { passive: false });
+    base.addEventListener("touchcancel", onEnd, { passive: false });
+    resetStick();
+
+    pumpBtn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      if (game.paused) game.setPaused(false);
+      else game.firePump();
+    });
+  })();
+
+  // ---- Rendering helpers ----
+  const lerp = (a, b, t) => a + (b - a) * t;
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawField() {
+    ctx.fillStyle = "#020617";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < C.ROWS; y++) {
+      for (let x = 0; x < C.COLS; x++) {
+        if (!game.dirt[y][x]) continue;
+        const px = x * T, py = y * T;
+        ctx.fillStyle = "#1e3a8a";
+        ctx.fillRect(px, py, T, T);
+        // a few fixed specks per tile for texture
+        ctx.fillStyle = "rgba(147,197,253,0.18)";
+        const h = (x * 73 + y * 151) % 997;
+        ctx.fillRect(px + (h % 23) + 3, py + ((h >> 2) % 23) + 3, 3, 2);
+        ctx.fillRect(px + ((h >> 3) % 23) + 3, py + ((h >> 5) % 23) + 3, 2, 2);
+      }
+    }
+  }
+
+  function drawEmeralds(now) {
+    const tick = Math.floor(now / 120);
+    for (const k of game.emeralds) {
+      const [x, y] = k.split(",").map(Number);
+      const cx = x * T + T / 2, cy = y * T + T / 2;
+      ctx.fillStyle = "#22c55e";
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 9); ctx.lineTo(cx + 8, cy); ctx.lineTo(cx, cy + 9); ctx.lineTo(cx - 8, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#bbf7d0";
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 9); ctx.lineTo(cx + 3, cy - 3); ctx.lineTo(cx - 3, cy - 3);
+      ctx.closePath();
+      ctx.fill();
+      if ((x * 7 + y * 13 + tick) % 40 === 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        ctx.fillRect(cx - 1, cy - 1, 2, 2);
+      }
+    }
+  }
+
+  function drawBag(b, bf) {
+    const shake = b.shaking ? ((Math.floor(b.shakeTimer * 24) % 2 === 0) ? -2 : 2) : 0;
+    const px = b.x * T + shake;
+    const py = lerp(b.py, b.y, bf) * T;
+    if (b.gold) {
+      // a spilled pile of coins
+      for (const [ox, oy] of [[10, 22], [22, 22], [16, 15]]) {
+        ctx.fillStyle = "#f59e0b";
+        ctx.beginPath(); ctx.ellipse(px + ox, py + oy, 7, 5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#fde68a";
+        ctx.beginPath(); ctx.ellipse(px + ox - 1, py + oy - 1, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      return;
+    }
+    // sack body
+    ctx.fillStyle = "#a16207";
+    ctx.beginPath(); ctx.ellipse(px + 16, py + 19, 11, 11, 0, 0, Math.PI * 2); ctx.fill();
+    // neck + tie
+    ctx.fillStyle = "#854d0e";
+    ctx.fillRect(px + 12, py + 4, 8, 6);
+    ctx.fillStyle = "#fbbf24";
+    ctx.fillRect(px + 11, py + 9, 10, 2);
+    // shine
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.beginPath(); ctx.ellipse(px + 11, py + 16, 3, 5, -0.4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawMonster(m, mf) {
+    const x = lerp(m.px, m.x, mf) * T, y = lerp(m.py, m.y, mf) * T;
+    ctx.fillStyle = "#ef4444";
+    roundRect(x + 5, y + 5, T - 10, T - 8, 9);
+    ctx.fill();
+    // jagged feet
+    ctx.fillStyle = "#020617";
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + 9 + i * 7, y + T - 3);
+      ctx.lineTo(x + 12 + i * 7, y + T - 8);
+      ctx.lineTo(x + 15 + i * 7, y + T - 3);
+      ctx.fill();
+    }
+    // eyes looking at the player
+    const lx = Math.sign(game.player.x - m.x) * 1.5;
+    const ly = Math.sign(game.player.y - m.y) * 1.5;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(x + 9, y + 10, 6, 6);
+    ctx.fillRect(x + 17, y + 10, 6, 6);
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(x + 11 + lx, y + 12 + ly, 2, 2);
+    ctx.fillRect(x + 19 + lx, y + 12 + ly, 2, 2);
+  }
+
+  function playerPos() {
+    const p = game.player;
+    const f = game.state === "playing" ? game.playerFrac() : 1;
+    return { x: lerp(p.px, p.x, f) * T, y: lerp(p.py, p.y, f) * T };
+  }
+
+  function drawPump() {
+    if (!game.pump) return;
+    const pp = playerPos();
+    const d = { right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] }[game.pump.dir];
+    const cx = pp.x + T / 2, cy = pp.y + T / 2;
+    const len = game.pump.len * T;
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx + d[0] * 14, cy + d[1] * 14);
+    ctx.lineTo(cx + d[0] * len, cy + d[1] * len);
+    ctx.stroke();
+    ctx.fillStyle = "#fde68a";
+    ctx.beginPath();
+    ctx.arc(cx + d[0] * len, cy + d[1] * len, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const FACING_ANGLE = { right: 0, down: Math.PI / 2, left: 0, up: -Math.PI / 2 };
+
+  function drawPlayer(now) {
+    const pp = playerPos();
+    const facing = game.lastFacing;
+    let scale = 1, alpha = 1, spin = 0;
+    if (game.state === "dying") {
+      const t = Math.max(0, game.deathTimer); // 1 → 0
+      scale = 0.3 + 0.7 * t;
+      spin = (1 - t) * Math.PI * 4;
+      alpha = 0.4 + 0.6 * t;
+    } else if (game.invuln > 0 && Math.floor(now / 100) % 2 === 0) {
+      alpha = 0.35;
+    }
+    if (game.state === "gameOver") return;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(pp.x + T / 2, pp.y + T / 2);
+    ctx.rotate(FACING_ANGLE[facing] + spin);
+    if (facing === "left") ctx.scale(-1, 1);
+    ctx.scale(scale, scale);
+
+    // treads
+    ctx.fillStyle = "#334155";
+    roundRect(-12, 5, 20, 7, 3);
+    ctx.fill();
+    ctx.fillStyle = "#64748b";
+    for (let i = 0; i < 4; i++) ctx.fillRect(-10 + i * 5, 7, 2, 3);
+    // body
+    ctx.fillStyle = "#22d3ee";
+    roundRect(-12, -10, 19, 16, 4);
+    ctx.fill();
+    // cab window
+    ctx.fillStyle = "#0e7490";
+    ctx.fillRect(-9, -7, 7, 6);
+    // drill: always points the way the pump will fire
+    ctx.fillStyle = "#e2e8f0";
+    ctx.beginPath();
+    ctx.moveTo(7, -7);
+    ctx.lineTo(15, -1);
+    ctx.lineTo(7, 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(9, -4); ctx.lineTo(11, 2);
+    ctx.moveTo(11, -3); ctx.lineTo(13, 0);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawOverlay() {
+    let title = null, sub = null, color = "#fde047";
+    if (game.paused) {
+      title = "PAUSED";
+      sub = isTouch ? "Tap the screen or move to resume" : "P / Esc to resume";
+      color = "#f8fafc";
+    } else if (game.state === "ready" && game.readyTimer === null) {
+      title = isTouch ? "MOVE TO START" : "PRESS AN ARROW KEY";
+      sub = isTouch
+        ? `Level ${game.level} · Joystick to dig · PUMP to fire`
+        : `Level ${game.level} · Arrows/WASD dig · Space pumps · P pauses`;
+    } else if (game.state === "ready") {
+      title = "READY!";
+      sub = `${game.lives} ${game.lives === 1 ? "life" : "lives"} left`;
+    }
+    if (!title) return;
+
+    const cy = game.height / 2;
+    const h = sub ? 64 : 44;
+    ctx.fillStyle = "rgba(0,0,0,0.72)";
+    ctx.fillRect(0, cy - h / 2, game.width, h);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = color;
+    ctx.font = "bold 22px ui-monospace, Menlo, Consolas, monospace";
+    ctx.fillText(title, game.width / 2, sub ? cy - 11 : cy);
+    if (sub) {
+      ctx.fillStyle = "#cbd5e1";
+      ctx.font = "13px ui-monospace, Menlo, Consolas, monospace";
+      ctx.fillText(sub, game.width / 2, cy + 16);
+    }
+  }
+
+  function render(now) {
+    drawField();
+    drawEmeralds(now);
+    const bf = game.bagFrac();
+    for (const b of game.bags) drawBag(b, bf);
+    const mf = game.monsterFrac();
+    for (const m of game.monsters) if (m.alive) drawMonster(m, mf);
+    drawPump();
+    drawPlayer(now);
+    drawOverlay();
+  }
+
+  // ---- Main loop ----
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    game.step(dt);
+    updateStatus(now);
+    render(now);
+    requestAnimationFrame(loop);
+  }
+
+  renderLives(game.lives);
+  emeraldsEl.textContent = String(game.emeralds.size);
   requestAnimationFrame(loop);
 })();

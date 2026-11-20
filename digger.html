@@ -6,21 +6,22 @@
     <title>Digger</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
-  <body>
+  <body class="digger-page">
     <header class="topbar">
       <h1>Digger</h1>
       <div class="controls">
-        <button id="restart-btn" type="button">Restart (R)</button>
+        <button id="pause-btn" type="button" aria-pressed="false">Pause (P)</button>
+        <button id="restart-btn" type="button">Restart</button>
       </div>
     </header>
 
     <main>
-      <section class="hud">
-        <div>Level: <span id="level">1</span></div>
+      <section class="hud digger-hud">
         <div>Score: <span id="score">0</span></div>
-        <div>Lives: <span id="lives">3</span></div>
-        <div>Emeralds: <span id="emeralds">0</span></div>
-        <div>Tip: Arrows/WASD move, Space pumps.</div>
+        <div>Best: <span id="best">0</span></div>
+        <div>Level: <span id="level">1</span></div>
+        <div class="lives-wrap">Lives: <span id="lives" class="lives" role="img" aria-label="3 lives"></span></div>
+        <div>Emeralds left: <span id="emeralds">0</span></div>
         <div id="status" aria-live="polite"></div>
       </section>
       <section class="retro-wrap">
@@ -33,21 +34,29 @@
 
     <footer class="footer">
       <small>
-        Dig tunnels, collect emeralds, crush monsters with falling bags. ·
+        Arrows/WASD dig · Space pumps · P pauses · R twice restarts. Collect every emerald; drop bags on monsters. ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
       </small>
     </footer>
 
+    <!-- Mobile controls (shown on touch devices only) -->
+    <div id="vjoy" class="vjoy" aria-hidden="true">
+      <div class="vjoy-base">
+        <div class="vjoy-stick"></div>
+      </div>
+    </div>
+    <button id="pump-btn" class="pump-btn" type="button" aria-label="Fire pump">PUMP</button>
+
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-box">
         <h2 id="modal-title">Digger</h2>
         <p id="modal-message"></p>
         <div class="modal-actions">
-          <button id="modal-next" class="hidden" type="button">Next Level</button>
-          <button id="modal-restart" type="button">Restart</button>
-          <button id="modal-close" type="button">Close</button>
+          <button id="modal-library" type="button">Library</button>
+          <button id="modal-restart" type="button">Play again</button>
+          <button id="modal-next" class="hidden" type="button">Next level (Enter)</button>
         </div>
       </div>
     </div>

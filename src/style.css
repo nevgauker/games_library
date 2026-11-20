@@ -460,3 +460,44 @@ canvas#game { width: min(960px, 92vw); height: auto; border: 1px solid rgba(255,
   );
   mix-blend-mode: overlay;
 }
+
+/* Digger */
+.lives { display: inline-flex; gap: 4px; vertical-align: -1px; }
+.life-icon {
+  display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+  background: conic-gradient(#fde047 0 60deg, transparent 60deg 120deg, #fde047 120deg);
+}
+.digger-page .digger-hud { flex-wrap: wrap; row-gap: 4px; align-items: center; }
+.digger-page .retro-screen {
+  /* 4:3 field sized to fit the viewport so the HUD stays visible */
+  width: min(92vw, 880px, max(300px, calc((100vh - 190px) * 4 / 3)));
+  width: min(92vw, 880px, max(300px, calc((100svh - 190px) * 4 / 3)));
+}
+.digger-page .life-icon {
+  border-radius: 4px;
+  background: linear-gradient(90deg, #22d3ee 0 70%, #e2e8f0 70%);
+}
+.pump-btn {
+  display: none;
+  position: fixed;
+  right: 16px;
+  bottom: 28px;
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  z-index: 2000;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #1f2937;
+  background: #fbbf24;
+  border: 1px solid rgba(0,0,0,0.2);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pump-btn:active { transform: scale(0.95); }
+@media (hover: none) and (pointer: coarse) {
+  .digger-page .retro-wrap { padding-bottom: 150px; }
+  .digger-page .pump-btn { display: block; }
+}

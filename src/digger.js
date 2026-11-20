@@ -6,9 +6,33 @@
   const MONSTER_STEP_BASE = 0.2;
   const BAG_FALL_STEP = 0.07;
   const MAX_LEVEL = 5;
+  const DEATH_TIME = 1.0;      // seconds of death animation before respawn
+  const RESPAWN_READY = 1.2;   // "Ready!" countdown after a respawn
+  const INVULN_TIME = 2.0;     // grace period after respawn
+
+  // Bag slots: each sits in solid dirt with solid dirt directly beneath,
+  // so no bag falls on its own at level start.
+  const BAG_SLOTS = [
+    [4, 4], [12, 4], [8, 7], [15, 7], [5, 10], [13, 10],
+  ];
+
+  const DIRS = {
+    up: { x: 0, y: -1 },
+    down: { x: 0, y: 1 },
+    left: { x: -1, y: 0 },
+    right: { x: 1, y: 0 },
+  };
 
   function key(x, y) {
     return `${x},${y}`;
+  }
+
+  function facingOf(dx, dy) {
+    if (dx === 1) return "right";
+    if (dx === -1) return "left";
+    if (dy === 1) return "down";
+    if (dy === -1) return "up";
+    return null;
   }
 
   class DiggerGame {
@@ -37,14 +61,14 @@
       for (const fn of arr) fn(payload);
     }
 
+    // ---- Lifecycle ----
+
     restart() {
       this.level = 1;
       this.score = 0;
       this.lives = 3;
-      this.running = true;
-      this.status = "";
+      this.paused = false;
       this._startLevel(this.level);
-      this._emitAll();
     }
 
     hasNextLevel() {
@@ -52,40 +76,52 @@
     }
 
     nextLevel() {
-      if (!this.hasNextLevel()) return false;
+      if (this.state !== "levelClear" || !this.hasNextLevel()) return false;
       this.level += 1;
       this._startLevel(this.level);
-      this.running = true;
-      this.status = "";
-      this._emitAll();
       return true;
+    }
+
+    /** True while the round is live (used by the UI to decide on restart confirmation). */
+    inProgress() {
+      return this.state === "playing" || this.state === "dying" ||
+        (this.state === "ready" && (this.score > 0 || this.level > 1));
+    }
+
+    _setState(s) {
+      if (this.state === s) return;
+      this.state = s;
+      this._emit("state", s);
     }
 
     _startLevel(level) {
       this.dir = { x: 0, y: 0 };
+      this.queued = null;
       this.lastFacing = "right";
-      this.playerAcc = 0;
+      this.playerAcc = PLAYER_STEP; // first input moves immediately
       this.monsterAcc = 0;
       this.bagAcc = 0;
       this.pump = null;
+      this.invuln = 0;
+      this.deathTimer = 0;
+      this.readyTimer = null; // null = wait for the player's first input
 
       this.dirt = Array.from({ length: ROWS }, () => Array(COLS).fill(true));
       this.emeralds = new Set();
       this.bags = [];
       this.monsters = [];
 
-      this.player = { x: 1, y: 1 };
-      this._carve(this.player.x, this.player.y);
+      this.player = { x: 1, y: 1, px: 1, py: 1 };
+      this._carve(1, 1);
       this._carveSpine();
+      this._carveNest(level);
       this._placeEmeralds();
       this._placeBags();
       this._spawnMonsters(level);
-      this._emit("level", this.level);
-      this._emit("score", this.score);
-      this._emit("lives", this.lives);
-      this._emit("emeralds", this.emeralds.size);
-      this._emit("status", this.status);
-      this._emit("update");
+
+      this.state = null;
+      this._setState("ready");
+      this._emitAll();
     }
 
     _emitAll() {
@@ -93,12 +129,13 @@
       this._emit("score", this.score);
       this._emit("lives", this.lives);
       this._emit("emeralds", this.emeralds.size);
-      this._emit("status", this.status);
       this._emit("update");
     }
 
+    // ---- Level generation ----
+
     _carve(x, y) {
-      if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
+      if (!this._isInside(x, y)) return;
       this.dirt[y][x] = false;
     }
 
@@ -108,6 +145,20 @@
       for (let y = 3; y < ROWS - 1; y += 3) {
         for (let x = 1; x < COLS - 1; x++) this._carve(x, y);
       }
+    }
+
+    _spawnPoints(level) {
+      const count = Math.min(2 + level, 7);
+      const pts = [];
+      for (let i = 0; i < count; i++) {
+        pts.push({ x: COLS - 2 - (i % 2), y: ROWS - 2 - Math.floor(i / 2) });
+      }
+      return pts;
+    }
+
+    _carveNest(level) {
+      // Monsters start in an open pocket instead of inside solid dirt.
+      for (const p of this._spawnPoints(level)) this._carve(p.x, p.y);
     }
 
     _placeEmeralds() {
@@ -121,13 +172,14 @@
     }
 
     _placeBags() {
-      const bagRows = [2, 4, 6, 8, 10, 12];
-      for (let i = 0; i < bagRows.length; i++) {
-        const y = bagRows[i];
-        const x = 4 + (i * 3) % (COLS - 6);
+      for (const [x, y] of BAG_SLOTS) {
+        // Defensive validation: a bag must sit in dirt on top of dirt,
+        // and never cover an emerald (which would hide a required pickup).
+        if (!this._isInside(x, y + 1)) continue;
+        if (!this.dirt[y][x] || !this.dirt[y + 1][x]) continue;
+        this.emeralds.delete(key(x, y));
         this.bags.push({
-          x,
-          y,
+          x, y, py: y,
           falling: false,
           shaking: false,
           shakeTimer: 0,
@@ -139,63 +191,138 @@
     }
 
     _spawnMonsters(level) {
-      const count = Math.min(2 + level, 7);
-      for (let i = 0; i < count; i++) {
-        this.monsters.push({
-          x: COLS - 2 - (i % 2),
-          y: ROWS - 2 - Math.floor(i / 2),
-          alive: true,
-        });
+      this.spawns = this._spawnPoints(level);
+      for (const p of this.spawns) {
+        this.monsters.push({ x: p.x, y: p.y, px: p.x, py: p.y, alive: true });
       }
     }
 
+    // ---- Input ----
+
+    /** Held direction (0,0 when released). */
     setDirection(dx, dy) {
-      if (!this.running) return;
       if (dx !== 0 && dy !== 0) return;
       this.dir = { x: dx, y: dy };
-      if (dx === 1) this.lastFacing = "right";
-      if (dx === -1) this.lastFacing = "left";
-      if (dy === 1) this.lastFacing = "down";
-      if (dy === -1) this.lastFacing = "up";
+      const f = facingOf(dx, dy);
+      if (f) {
+        this.lastFacing = f;
+        this._wake();
+      }
+    }
+
+    /** A single press: guarantees one step even if released before the next tick. */
+    nudge(dx, dy) {
+      const f = facingOf(dx, dy);
+      if (!f) return;
+      this.queued = { x: dx, y: dy };
+      this.lastFacing = f;
+      this._wake();
+    }
+
+    _wake() {
+      if (this.paused) return;
+      if (this.state === "ready" && this.readyTimer === null) this._setState("playing");
     }
 
     firePump() {
-      if (!this.running) return;
+      if (this.paused || this.state !== "playing") return;
       if (this.pump) return;
-      this.pump = {
-        dir: this.lastFacing,
-        len: 0,
-        max: 4,
-        timer: 0,
-      };
+      this.pump = { dir: this.lastFacing, len: 0, max: 4, timer: 0 };
     }
 
-    step(dt) {
-      if (!this.running) return;
+    setPaused(p) {
+      p = !!p;
+      if (p && !(this.state === "playing" || this.state === "ready")) return;
+      if (this.paused === p) return;
+      this.paused = p;
+      this._emit("pause", p);
+    }
 
-      this.playerAcc += dt;
-      while (this.playerAcc >= PLAYER_STEP) {
-        this.playerAcc -= PLAYER_STEP;
-        this._movePlayer();
+    togglePause() {
+      this.setPaused(!this.paused);
+    }
+
+    // ---- Simulation ----
+
+    step(dt) {
+      if (this.paused) return;
+
+      if (this.state === "ready") {
+        if (this.readyTimer !== null) {
+          this.readyTimer -= dt;
+          if (this.readyTimer <= 0) {
+            this.readyTimer = null;
+            this._setState("playing");
+          }
+        }
+        this._emit("update");
+        return;
       }
 
+      if (this.state === "dying") {
+        this.deathTimer -= dt;
+        if (this.deathTimer <= 0) this._afterDeath();
+        this._emit("update");
+        return;
+      }
+
+      if (this.state !== "playing") return;
+
+      if (this.invuln > 0) this.invuln = Math.max(0, this.invuln - dt);
+
+      // Player: when idle, keep the timer primed so the next press moves at once.
+      const wantsMove = this.queued || this.dir.x !== 0 || this.dir.y !== 0;
+      if (!wantsMove) {
+        this.playerAcc = Math.min(this.playerAcc + dt, PLAYER_STEP);
+        this.player.px = this.player.x;
+        this.player.py = this.player.y;
+      } else {
+        this.playerAcc += dt;
+        while (this.playerAcc >= PLAYER_STEP && this.state === "playing") {
+          this.playerAcc -= PLAYER_STEP;
+          this._movePlayer();
+          if (!this.queued && this.dir.x === 0 && this.dir.y === 0) {
+            this.playerAcc = Math.min(this.playerAcc, PLAYER_STEP);
+            break;
+          }
+        }
+      }
+      if (this.state !== "playing") return this._emit("update");
+
       this.bagAcc += dt;
-      while (this.bagAcc >= BAG_FALL_STEP) {
+      while (this.bagAcc >= BAG_FALL_STEP && this.state === "playing") {
         this.bagAcc -= BAG_FALL_STEP;
         this._updateBags();
       }
+      if (this.state !== "playing") return this._emit("update");
 
       this.monsterAcc += dt;
-      const mStep = Math.max(0.08, MONSTER_STEP_BASE - (this.level - 1) * 0.02);
-      while (this.monsterAcc >= mStep) {
+      const mStep = this.monsterStep();
+      while (this.monsterAcc >= mStep && this.state === "playing") {
         this.monsterAcc -= mStep;
         this._moveMonsters();
       }
+      if (this.state !== "playing") return this._emit("update");
 
       this._updatePump(dt);
       this._checkContactDamage();
 
       this._emit("update");
+    }
+
+    monsterStep() {
+      return Math.max(0.08, MONSTER_STEP_BASE - (this.level - 1) * 0.02);
+    }
+
+    /** 0..1 progress of the current player/monster/bag step, for smooth rendering. */
+    playerFrac() {
+      return Math.min(1, this.playerAcc / PLAYER_STEP);
+    }
+    monsterFrac() {
+      return this.state === "playing" ? Math.min(1, this.monsterAcc / this.monsterStep()) : 1;
+    }
+    bagFrac() {
+      return this.state === "playing" ? Math.min(1, this.bagAcc / BAG_FALL_STEP) : 1;
     }
 
     _isInside(x, y) {
@@ -218,23 +345,31 @@
     }
 
     _movePlayer() {
-      const dx = this.dir.x;
-      const dy = this.dir.y;
-      if (dx === 0 && dy === 0) return;
+      const p = this.player;
+      p.px = p.x;
+      p.py = p.y;
 
-      const nx = this.player.x + dx;
-      const ny = this.player.y + dy;
+      const d = this.dir.x !== 0 || this.dir.y !== 0 ? this.dir : this.queued;
+      this.queued = null;
+      if (!d) return;
+
+      const f = facingOf(d.x, d.y);
+      if (f) this.lastFacing = f;
+
+      const nx = p.x + d.x;
+      const ny = p.y + d.y;
       if (!this._canWalkInto(nx, ny)) return;
 
       const bag = this._bagAt(nx, ny);
       if (bag && bag.gold) {
         this.score += 500;
         this._emit("score", this.score);
+        this._emit("event", { type: "gold", x: nx, y: ny, points: 500 });
         this.bags = this.bags.filter((b) => b !== bag);
       }
 
-      this.player.x = nx;
-      this.player.y = ny;
+      p.x = nx;
+      p.y = ny;
       this._carve(nx, ny);
 
       const ek = key(nx, ny);
@@ -245,13 +380,18 @@
         this._emit("emeralds", this.emeralds.size);
       }
 
+      this._checkContactDamage();
+      if (this.state !== "playing") return;
+
       if (this.emeralds.size === 0) {
-        this.running = false;
-        if (this.hasNextLevel()) {
-          this._emit("win", { level: this.level, score: this.score, final: false, nextLevel: this.level + 1 });
-        } else {
-          this._emit("win", { level: this.level, score: this.score, final: true, nextLevel: null });
-        }
+        this._setState("levelClear");
+        this._emit("win", {
+          level: this.level,
+          score: this.score,
+          final: !this.hasNextLevel(),
+          nextLevel: this.hasNextLevel() ? this.level + 1 : null,
+        });
+        if (!this.hasNextLevel()) this._setState("won");
       }
     }
 
@@ -265,6 +405,7 @@
 
     _updateBags() {
       for (const bag of this.bags) {
+        bag.py = bag.y;
         if (bag.gold) continue;
 
         const supported = this._belowIsSupport(bag.x, bag.y);
@@ -297,7 +438,10 @@
 
         const ny = bag.y + 1;
         if (ny >= ROWS || this.dirt[ny][bag.x] || this._bagAt(bag.x, ny)) {
-          if (bag.drop >= 2) bag.gold = true;
+          if (bag.drop >= 2) {
+            bag.gold = true;
+            this._emit("event", { type: "burst", x: bag.x, y: bag.y });
+          }
           bag.falling = false;
           bag.drop = 0;
           continue;
@@ -306,8 +450,8 @@
         bag.y = ny;
         bag.drop += 1;
 
-        if (this.player.x === bag.x && this.player.y === bag.y) {
-          this._loseLife("Crushed by bag.");
+        if (this.player.x === bag.x && this.player.y === bag.y && this.invuln <= 0) {
+          this._loseLife("Crushed by a bag!");
           return;
         }
 
@@ -316,40 +460,38 @@
             m.alive = false;
             this.score += 250;
             this._emit("score", this.score);
+            this._emit("event", { type: "kill", x: m.x, y: m.y, points: 250 });
           }
         }
       }
+      this.monsters = this.monsters.filter((m) => m.alive);
     }
 
     _moveMonsters() {
       for (const m of this.monsters) {
+        m.px = m.x;
+        m.py = m.y;
         if (!m.alive) continue;
         const opts = [];
-        const dirs = [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ];
-        for (const [dx, dy] of dirs) {
-          const nx = m.x + dx;
-          const ny = m.y + dy;
+        for (const d of Object.values(DIRS)) {
+          const nx = m.x + d.x;
+          const ny = m.y + d.y;
           if (!this._isInside(nx, ny)) continue;
           if (this.dirt[ny][nx]) continue;
           const bag = this._bagAt(nx, ny);
           if (bag && !bag.gold) continue;
-          const d = Math.abs(this.player.x - nx) + Math.abs(this.player.y - ny);
-          opts.push({ nx, ny, d });
+          const dist = Math.abs(this.player.x - nx) + Math.abs(this.player.y - ny);
+          opts.push({ nx, ny, d: dist });
         }
 
         if (opts.length === 0) continue;
         opts.sort((a, b) => a.d - b.d);
-        const best = opts[0];
-        m.x = best.nx;
-        m.y = best.ny;
+        m.x = opts[0].nx;
+        m.y = opts[0].ny;
       }
 
       this.monsters = this.monsters.filter((m) => m.alive);
+      this._checkContactDamage();
     }
 
     _updatePump(dt) {
@@ -361,36 +503,39 @@
       }
 
       const head = this._pumpHead();
-      if (head && this._monsterAt(head.x, head.y)) {
-        const m = this._monsterAt(head.x, head.y);
-        if (m) {
-          m.alive = false;
-          this.score += 250;
-          this._emit("score", this.score);
-        }
+      const m = head && this._monsterAt(head.x, head.y);
+      if (m) {
+        m.alive = false;
+        this.score += 250;
+        this._emit("score", this.score);
+        this._emit("event", { type: "kill", x: m.x, y: m.y, points: 250 });
+        this.monsters = this.monsters.filter((mm) => mm.alive);
         this.pump = null;
+        return;
       }
 
-      if (this.pump && this.pump.len >= this.pump.max) {
-        this.pump = null;
-      }
+      if (this.pump.len >= this.pump.max) this.pump = null;
     }
 
     _pumpHead() {
       if (!this.pump) return null;
       const p = this.player;
-      const len = this.pump.len;
-      if (this.pump.dir === "right") return { x: p.x + len, y: p.y };
-      if (this.pump.dir === "left") return { x: p.x - len, y: p.y };
-      if (this.pump.dir === "down") return { x: p.x, y: p.y + len };
-      return { x: p.x, y: p.y - len };
+      const d = DIRS[this.pump.dir];
+      return { x: p.x + d.x * this.pump.len, y: p.y + d.y * this.pump.len };
+    }
+
+    /** Same tile, or the two swapped tiles this tick (which used to pass through). */
+    _touches(m) {
+      const p = this.player;
+      if (m.x === p.x && m.y === p.y) return true;
+      return m.x === p.px && m.y === p.py && m.px === p.x && m.py === p.y;
     }
 
     _checkContactDamage() {
+      if (this.state !== "playing" || this.invuln > 0) return;
       for (const m of this.monsters) {
-        if (!m.alive) continue;
-        if (m.x === this.player.x && m.y === this.player.y) {
-          this._loseLife("Monster got you.");
+        if (m.alive && this._touches(m)) {
+          this._loseLife("A monster got you!");
           return;
         }
       }
@@ -399,18 +544,34 @@
     _loseLife(reason) {
       this.lives -= 1;
       this._emit("lives", this.lives);
-      this.status = reason;
-      this._emit("status", this.status);
-
-      this.dir = { x: 0, y: 0 };
+      this._emit("status", reason);
       this.pump = null;
-      this.player = { x: 1, y: 1 };
-      this._carve(this.player.x, this.player.y);
+      this.deathTimer = DEATH_TIME;
+      this._setState("dying");
+    }
 
+    _afterDeath() {
       if (this.lives <= 0) {
-        this.running = false;
+        this._setState("gameOver");
         this._emit("lose", { level: this.level, score: this.score });
+        return;
       }
+      // Respawn: player back home, monsters back to their nest, short grace period.
+      this.player = { x: 1, y: 1, px: 1, py: 1 };
+      this._carve(1, 1);
+      this.dir = { x: 0, y: 0 };
+      this.queued = null;
+      this.playerAcc = PLAYER_STEP;
+      this.monsterAcc = 0;
+      this.monsters.forEach((m, i) => {
+        const s = this.spawns[i % this.spawns.length];
+        m.x = m.px = s.x;
+        m.y = m.py = s.y;
+      });
+      this.invuln = INVULN_TIME;
+      this.readyTimer = RESPAWN_READY;
+      this._setState("ready");
+      this._emit("update");
     }
   }
 
