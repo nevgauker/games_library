@@ -22,7 +22,21 @@
   const DEATH_TIME = 1.5; // death animation length
   const CLEAR_TIME = 2.0; // level-clear flash length
   const RELEASE_TIMES = [0, 2, 5, 8]; // seconds into a round when each ghost leaves
-  const RESPAWN_DELAY = 1.5; // eaten ghost waits this long in the house
+  const RESPAWN_DELAY = 1.0; // eaten ghost waits this long in the house after its eyes get home
+  const EYES_SPEED = 150; // px/s for eaten ghosts heading home
+  const TUNNEL_FACTOR = 0.55; // ghost speed multiplier inside side tunnels
+  const HIT_STOP = 0.4; // brief freeze when a ghost is eaten
+  const GHOST_POINTS = [200, 400, 800, 1600]; // combo within one power pellet
+
+  // Ghosts alternate between scattering to their corner and chasing. The timer pauses while frightened.
+  const MODES = [['scatter', 7], ['chase', 20], ['scatter', 7], ['chase', 20], ['scatter', 5], ['chase', Infinity]];
+
+  // Ghost personalities, in spawn order
+  //   hunter   - heads straight for Pac
+  //   ambusher - aims 4 tiles ahead of Pac to cut him off
+  //   guard    - when Pac nears a power pellet, camps it; otherwise presses 2 tiles ahead
+  //   wanderer - roams to random spots, but locks on when Pac comes within 6 tiles
+  const PERSONAS = ['hunter', 'ambusher', 'guard', 'wanderer'];
 
   // 28 x 28 tiles.
   // '#' wall, '-' ghost-house door, '.' pellet, 'o' power pellet, ' ' empty,
@@ -85,7 +99,21 @@
       ? { x: ghostSpawn.x * TILE + TILE / 2, y: ghostSpawn.y * TILE + TILE / 2 }
       : { x: doorX - TILE / 2, y: (doorRow - 1) * TILE + TILE / 2 };
     const house = { x: doorX, y: (doorRow + 2) * TILE + TILE / 2 };
-    return { rows: rowsN, cols: colsN, grid, pellets, powers, door, pacSpawn, exit, house };
+    const exitTile = { x: Math.floor(exit.x / TILE), y: Math.floor(exit.y / TILE) };
+    // Side-tunnel tiles: open run from each edge of a wrap-around row (ghosts slow down here)
+    const tunnel = new Set();
+    for (let y = 0; y < rowsN; y++) {
+      if (grid[y][0] !== ' ' || grid[y][colsN - 1] !== ' ') continue;
+      for (let x = 0; x < colsN && grid[y][x] === ' '; x++) tunnel.add(key(x, y));
+      for (let x = colsN - 1; x >= 0 && grid[y][x] === ' '; x--) tunnel.add(key(x, y));
+    }
+    // Corridor tiles (everywhere a pellet starts) - used as wander destinations
+    const corridors = [...pellets, ...powers].map(k => { const [x, y] = k.split(',').map(Number); return { x, y }; });
+    // Scatter corners sit just outside the maze so ghosts circle the nearest block
+    const corners = [
+      { x: colsN - 2, y: -3 }, { x: 1, y: -3 }, { x: colsN - 1, y: rowsN + 1 }, { x: 0, y: rowsN + 1 },
+    ];
+    return { rows: rowsN, cols: colsN, grid, pellets, powers, door, pacSpawn, exit, exitTile, house, tunnel, corridors, corners };
   }
 
   function key(x, y) { return `${x},${y}`; }
@@ -113,11 +141,6 @@
     if (px < 0) return px + w;
     if (px >= w) return px - w;
     return px;
-  }
-
-  function atTileCenter(px, py) {
-    const { cx, cy } = centerCoords(px, py);
-    return Math.abs(px - cx) < 0.6 && Math.abs(py - cy) < 0.6;
   }
 
   function centerCoords(px, py) {
@@ -149,9 +172,14 @@
     return dirs;
   }
 
-  function distance(a, b) {
-    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  // Squared straight-line distance between tiles (ghost steering and range checks)
+  function dist2(a, b) {
+    const dx = a.x - b.x, dy = a.y - b.y;
+    return dx * dx + dy * dy;
   }
+
+  // Tie-break order when two exits are equally good
+  const DIR_PRIORITY = ['up', 'left', 'down', 'right'];
 
   function approach(cur, target, maxStep) {
     const d = target - cur;
@@ -195,6 +223,10 @@
       const lv = this.level;
       this.roundTime = 0;
       this.powerTimer = 0;
+      this.modeIndex = 0;
+      this.modeTimer = MODES[0][1];
+      this.combo = 0;
+      this.hitStop = 0;
       this.pac = {
         x: lv.pacSpawn.x * TILE + TILE / 2,
         y: lv.pacSpawn.y * TILE + TILE / 2,
@@ -208,13 +240,18 @@
         const x = outside ? lv.exit.x : lv.house.x + housePos[i - 1];
         const y = outside ? lv.exit.y : lv.house.y;
         return {
+          id: i,
+          persona: PERSONAS[i],
           x, y,
           homeX: x, homeY: y,
-          dir: 'left',
+          dir: outside ? 'up' : 'left',
           color,
           frightened: false,
-          state: outside ? 'active' : 'house', // 'house' | 'leaving' | 'active'
+          // 'house' | 'leaving' | 'active' | 'eyes' (eaten, heading home) | 'entering' (eyes dropping into house)
+          state: outside ? 'active' : 'house',
           releaseAt: RELEASE_TIMES[i],
+          wanderTarget: null,
+          wanderTimer: 0,
         };
       });
       this.emit('lives', this.lives);
@@ -310,14 +347,27 @@
       }
     }
 
+    get mode() { return MODES[this.modeIndex][0]; }
+
     tickPlaying(dt) {
+      // Short freeze after eating a ghost so the points register
+      if (this.hitStop > 0) { this.hitStop = Math.max(0, this.hitStop - dt); return; }
       this.roundTime += dt;
 
-      // Power timer
+      // Power timer; the scatter/chase clock only runs while ghosts aren't frightened
       if (this.powerTimer > 0) {
         this.powerTimer = Math.max(0, this.powerTimer - dt);
         if (this.powerTimer === 0) {
           for (const g of this.ghosts) g.frightened = false;
+        }
+      } else {
+        this.modeTimer -= dt;
+        if (this.modeTimer <= 0 && this.modeIndex < MODES.length - 1) {
+          this.modeIndex += 1;
+          this.modeTimer = MODES[this.modeIndex][1];
+          // Every roaming ghost turns around: the player's cue that the pressure changed
+          for (const g of this.ghosts) if (g.state === 'active') g.dir = opp(g.dir);
+          this.emit('mode', this.mode);
         }
       }
 
@@ -339,14 +389,20 @@
 
       for (const g of this.ghosts) this.moveGhost(g, dt);
 
-      // Collisions Pac vs Ghosts (ghosts still inside the house can't touch Pac)
+      // Collisions Pac vs Ghosts (only ghosts out in the maze, not eyes or ones in the house)
       for (const g of this.ghosts) {
-        if (g.state === 'house') continue;
+        if (g.state !== 'active' && g.state !== 'leaving') continue;
         const dx = g.x - this.pac.x, dy = g.y - this.pac.y;
         if (dx * dx + dy * dy < (TILE * 0.5) * (TILE * 0.5)) {
           if (g.frightened) {
-            this.sendHome(g);
-            this.score += 200; this.emit('score', this.score);
+            const points = GHOST_POINTS[Math.min(this.combo, GHOST_POINTS.length - 1)];
+            this.combo += 1;
+            this.score += points; this.emit('score', this.score);
+            this.emit('ghosteaten', { x: g.x, y: g.y, points, combo: this.combo });
+            g.frightened = false;
+            if (g.state === 'leaving') { this.parkInHouse(g); } // still in the doorway: straight back in
+            else g.state = 'eyes';
+            this.hitStop = HIT_STOP;
           } else {
             this.lives -= 1; this.emit('lives', this.lives);
             this.powerTimer = 0;
@@ -448,52 +504,141 @@
           g.dir = 'up';
           if (g.y === lv.exit.y) {
             g.state = 'active';
-            g.dir = g.homeX > lv.house.x ? 'right' : 'left';
+            g.dir = 'up'; // picks left/right at the first decision, by target
           }
         }
         return;
       }
-
-      const ggx = Math.floor(g.x / TILE), ggy = Math.floor(g.y / TILE);
-      if (atTileCenter(g.x, g.y)) {
-        const dirs = possibleDirs(lv, ggx, ggy).filter(d => d !== opp(g.dir));
-        if (dirs.length > 0) {
-          const pac = { x: Math.floor(this.pac.x / TILE), y: Math.floor(this.pac.y / TILE) };
-          // Frightened ghosts maximise distance from Pac; otherwise minimise it
-          const sign = g.frightened ? -1 : 1;
-          let best = Infinity, bestDir = dirs[0];
-          for (const d of dirs) {
-            const v = dirVec(d);
-            const score = sign * distance({ x: ggx + v.dx, y: ggy + v.dy }, pac);
-            if (score < best) { best = score; bestDir = d; }
-          }
-          if (bestDir !== g.dir) {
-            // Snap onto the centre so turns never accumulate drift
-            const c = centerCoords(g.x, g.y);
-            g.x = c.cx; g.y = c.cy;
-          }
-          g.dir = bestDir;
+      if (g.state === 'entering') {
+        // Eyes drop down through the door, then slide to the house centre
+        const s = EYES_SPEED * 0.6 * dt;
+        if (g.y !== lv.house.y) { g.x = lv.exit.x; g.y = approach(g.y, lv.house.y, s); g.dir = 'down'; }
+        else {
+          g.x = approach(g.x, lv.house.x, s);
+          if (g.x === lv.house.x) this.parkInHouse(g);
         }
+        return;
       }
-      const v = dirVec(g.dir);
-      const spd = (g.frightened ? FRIGHT_SPEED : GHOST_SPEED) * dt;
-      const mv = this.clampMove(g, v, spd, blocked(lv, ggx + v.dx, ggy + v.dy));
-      g.x = wrapX(lv, g.x + v.dx * mv);
-      g.y += v.dy * mv;
+
+      // Roaming ghosts and eyes move on the grid
+      if (g.persona === 'wanderer') g.wanderTimer -= dt;
+      let speed = g.state === 'eyes' ? EYES_SPEED : g.frightened ? FRIGHT_SPEED : GHOST_SPEED;
+      if (g.state !== 'eyes' && lv.tunnel.has(key(Math.floor(g.x / TILE), Math.floor(g.y / TILE)))) speed *= TUNNEL_FACTOR;
+      this.advanceGhost(g, speed * dt);
     }
 
-    sendHome(g) {
+    // Move a ghost `dist` pixels along the grid, deciding a new direction at every tile centre it reaches.
+    // Stepping centre-to-centre means fast movers (eyes) can never skip past a junction.
+    advanceGhost(g, dist) {
+      const lv = this.level;
+      const EPS = 1e-4;
+      for (let i = 0; i < 8 && dist > EPS; i++) {
+        const gx = Math.floor(g.x / TILE), gy = Math.floor(g.y / TILE);
+        const cx = gx * TILE + TILE / 2, cy = gy * TILE + TILE / 2;
+        if (Math.abs(g.x - cx) < EPS && Math.abs(g.y - cy) < EPS) {
+          g.x = cx; g.y = cy;
+          if (g.state === 'eyes' && gx === lv.exitTile.x && gy === lv.exitTile.y) { g.state = 'entering'; return; }
+          const d = this.chooseDir(g, gx, gy);
+          if (!d) return;
+          g.dir = d;
+        }
+        const v = dirVec(g.dir);
+        // Head for the centre of this tile if it's still ahead, otherwise the next tile's centre
+        const ahead = (cx - g.x) * v.dx + (cy - g.y) * v.dy;
+        const tx = ahead > EPS ? cx : cx + v.dx * TILE;
+        const ty = ahead > EPS ? cy : cy + v.dy * TILE;
+        const gap = Math.abs(tx - g.x) + Math.abs(ty - g.y);
+        if (dist < gap) { g.x += v.dx * dist; g.y += v.dy * dist; dist = 0; }
+        else { g.x = tx; g.y = ty; dist -= gap; }
+        g.x = wrapX(lv, g.x);
+      }
+    }
+
+    chooseDir(g, gx, gy) {
+      const lv = this.level;
+      const open = possibleDirs(lv, gx, gy);
+      let opts = open.filter(d => d !== opp(g.dir)); // ghosts never U-turn by choice
+      if (!opts.length) opts = open;
+      if (!opts.length) return null;
+
+      if (g.frightened) {
+        // Panicked: random pick, but never the exit that leads closest to Pac
+        if (opts.length > 1) {
+          const pac = this.pacTile();
+          let worst = null, worstD = Infinity;
+          for (const d of opts) {
+            const v = dirVec(d), dd = dist2({ x: gx + v.dx, y: gy + v.dy }, pac);
+            if (dd < worstD) { worstD = dd; worst = d; }
+          }
+          opts = opts.filter(d => d !== worst);
+        }
+        return opts[Math.floor(Math.random() * opts.length)];
+      }
+
+      const target = this.targetFor(g, gx, gy);
+      let best = null, bestD = Infinity;
+      for (const d of DIR_PRIORITY) {
+        if (!opts.includes(d)) continue;
+        const v = dirVec(d), dd = dist2({ x: gx + v.dx, y: gy + v.dy }, target);
+        if (dd < bestD) { bestD = dd; best = d; }
+      }
+      return best;
+    }
+
+    pacTile() { return { x: Math.floor(this.pac.x / TILE), y: Math.floor(this.pac.y / TILE) }; }
+
+    // Tile each ghost steers toward
+    targetFor(g, gx, gy) {
+      const lv = this.level;
+      if (g.state === 'eyes') return lv.exitTile;
+      if (this.mode === 'scatter') return lv.corners[g.id];
+      const p = this.pacTile();
+      const v = dirVec(this.pac.dir);
+      switch (g.persona) {
+        case 'ambusher':
+          return { x: p.x + v.dx * 4, y: p.y + v.dy * 4 };
+        case 'guard': {
+          let pellet = null, pd = Infinity;
+          for (const k of lv.powers) {
+            const [x, y] = k.split(',').map(Number);
+            const d = dist2({ x, y }, p);
+            if (d < pd) { pd = d; pellet = { x, y }; }
+          }
+          if (pellet && pd <= 7 * 7) return pellet;
+          return { x: p.x + v.dx * 2, y: p.y + v.dy * 2 };
+        }
+        case 'wanderer': {
+          if (dist2({ x: gx, y: gy }, p) <= 6 * 6) return p;
+          const t = g.wanderTarget;
+          if (!t || g.wanderTimer <= 0 || (t.x === gx && t.y === gy)) {
+            g.wanderTarget = lv.corridors[Math.floor(Math.random() * lv.corridors.length)];
+            g.wanderTimer = 4;
+          }
+          return g.wanderTarget;
+        }
+        default: // hunter
+          return p;
+      }
+    }
+
+    parkInHouse(g) {
       const lv = this.level;
       g.x = lv.house.x; g.homeX = lv.house.x;
       g.y = lv.house.y; g.homeY = lv.house.y;
       g.frightened = false;
       g.state = 'house';
+      g.dir = 'up';
       g.releaseAt = this.roundTime + RESPAWN_DELAY;
     }
 
     powerUp() {
       this.powerTimer = POWER_TIME;
-      for (const g of this.ghosts) g.frightened = true;
+      this.combo = 0;
+      for (const g of this.ghosts) {
+        if (g.state === 'eyes' || g.state === 'entering') continue;
+        if (g.state === 'active' && !g.frightened) g.dir = opp(g.dir); // startled: turn around
+        g.frightened = true;
+      }
     }
   }
 

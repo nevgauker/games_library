@@ -213,15 +213,36 @@
       const ending = game.powerTimer > 0 && game.powerTimer < 2;
       const blink = ending && Math.floor(game.clock * 6) % 2 === 0;
       for (const g of game.ghosts) {
-        if (g.frightened) drawScaredGhost(g.x, g.y, blink ? '#f8fafc' : FRIGHT, game.clock);
+        if (g.state === 'eyes' || g.state === 'entering') drawEyes(g.x, g.y, g.dir);
+        else if (g.frightened) drawScaredGhost(g.x, g.y, blink ? '#f8fafc' : FRIGHT, game.clock);
         else drawGhost(g.x, g.y, g.color, g.dir, game.clock);
       }
     }
+    drawPopups();
 
     if (st === 'dying') drawDyingPac(game.pac.x, game.pac.y, game.deathProgress);
     else if (st !== 'gameOver') drawPac(game.pac.x, game.pac.y, game.pac.dir);
 
     drawOverlay();
+  }
+
+  // Floating points where a ghost was eaten (timed by game clock, so they freeze while paused)
+  const popups = [];
+  game.on('ghosteaten', ({ x, y, points }) => popups.push({ x, y, text: String(points), born: game.clock }));
+  game.on('state', s => { if (s !== 'playing') popups.length = 0; });
+  function drawPopups(){
+    const LIFE = 1.0;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 9px ui-monospace, Menlo, Consolas, monospace';
+    for (let i = popups.length - 1; i >= 0; i--) {
+      const p = popups[i], age = game.clock - p.born;
+      if (age > LIFE) { popups.splice(i, 1); continue; }
+      ctx.globalAlpha = 1 - Math.max(0, age - 0.6) / (LIFE - 0.6);
+      ctx.fillStyle = '#67e8f9';
+      ctx.fillText(p.text, p.x, p.y - age * 10);
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawOverlay(){
@@ -316,6 +337,10 @@
 
   function drawGhost(x, y, color, dir, t){
     ghostBody(x, y, color, t);
+    drawEyes(x, y, dir);
+  }
+
+  function drawEyes(x, y, dir){
     const v = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] }[dir] || [0, 0];
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(x - 3, y - 2, 2.8, 0, Math.PI*2); ctx.fill();
