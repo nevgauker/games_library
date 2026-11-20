@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Pack & Dash!</title>
+    <title>Micro Racer</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
   <body>
@@ -33,10 +33,10 @@
 
     <main>
       <section class="hud">
-        <div>Lap: <span id="lap">1</span>/3</div>
-        <div>Position: <span id="pos">1</span>/4</div>
+        <div>Lap: <span id="lap">1</span>/<span id="lap-total">3</span></div>
+        <div>Position: <span id="pos">1</span>/<span id="car-total">4</span></div>
         <div>Time: <span id="time">0.0</span>s</div>
-        <div>Tip: WASD/Arrows drive. Finish 3 laps first!</div>
+        <div>Tip: WASD/Arrows drive. Cross every checkpoint, finish 3 laps first!</div>
         <div id="status" aria-live="polite"></div>
       </section>
       <section class="backspace-wrap">
@@ -67,5 +67,5 @@
     <script src="src/race.js"></script>
     <script src="src/race_ui.js"></script>
   </body>
-  </html>
+</html>
 

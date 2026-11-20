@@ -1,11 +1,15 @@
 // Micro Racer: simple top-down racing with 3 tracks and 3 AI levels
 (function(global){
   const TWOPI = Math.PI * 2;
+  const LAPS = 3;
+  const COUNTDOWN = 3;      // seconds of 3-2-1 before GO
+  const GATE_RADIUS = 90;   // a car must pass within this distance of a waypoint for it to count
 
   class Emitter { constructor(){ this.m=new Map(); } on(e,f){ if(!this.m.has(e)) this.m.set(e,[]); this.m.get(e).push(f);} emit(e,v){ const a=this.m.get(e); if(a) for(const f of a) f(v); } }
 
-  // Three tracks as waypoint loops (normalized to canvas 640x360)
-  // Cars steer toward the next waypoint; lap counts when crossing start line between wp[0] and wp[1]
+  // Three tracks as waypoint loops (canvas 640x360).
+  // Each waypoint is also a "gate": a line through the waypoint, across the direction of travel.
+  // Cars must cross the gates in order; crossing gate 0 after all the others completes a lap.
   const TRACKS = {
     oval: {
       name: 'Oval',
@@ -21,20 +25,37 @@
     }
   };
 
+  // lane: max sideways offset from the waypoint the AI aims for (re-rolled per waypoint)
+  // look: distance at which the AI starts steering for the next waypoint
   const AI_LEVELS = {
-    easy:   { maxSpeed: 110, accel: 110, turn: 2.1, jitter: 10, look: 80 },
-    normal: { maxSpeed: 140, accel: 160, turn: 2.6, jitter: 6,  look: 110 },
-    hard:   { maxSpeed: 170, accel: 200, turn: 3.2, jitter: 3,  look: 140 },
+    easy:   { maxSpeed: 110, accel: 110, turn: 2.1, lane: 14, look: 40 },
+    normal: { maxSpeed: 140, accel: 160, turn: 2.6, lane: 10, look: 50 },
+    hard:   { maxSpeed: 170, accel: 200, turn: 3.2, lane: 6,  look: 60 },
   };
 
+  const PLAYER = { accel: 220, brake: 280, maxSpeed: 170, reverse: 0.4, turn: 4.2, friction: 0.98 };
+
   function angNorm(a){ while(a>Math.PI) a-=TWOPI; while(a<-Math.PI) a+=TWOPI; return a; }
-  function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+  // Per-frame (60fps) decay factor converted to any frame time
+  function decay(f, dt){ return Math.pow(f, dt*60); }
+
+  function buildGates(wps){
+    const n = wps.length;
+    return wps.map(([x,y], i) => {
+      const [px,py] = wps[(i-1+n)%n], [nx,ny] = wps[(i+1)%n];
+      const tx = nx-px, ty = ny-py, l = Math.hypot(tx,ty) || 1;
+      return { x, y, tx: tx/l, ty: ty/l };
+    });
+  }
 
   class Car{
-    constructor({x,y,a,color,isPlayer=false,ai=null}){
-      this.x=x; this.y=y; this.a=a; // angle
-      this.vx=0; this.vy=0; this.va=0;
-      this.speed=0; this.color=color; this.isPlayer=isPlayer; this.ai=ai; this.wp=0; this.progress=0; this.lap=1; this.lapsTotal=3; this.finished=false; this.time=0;
+    constructor({x,y,a,color,isPlayer=false,ai=false}){
+      this.x=x; this.y=y; this.a=a; this.speed=0;
+      this.color=color; this.isPlayer=isPlayer; this.ai=ai;
+      this.gate=0;          // index of the next gate to cross
+      this.started=false;   // grid is behind the start line; the first crossing starts lap 1
+      this.lap=1; this.finished=false; this.time=0;
+      this.target=0; this.laneOff=0; // AI steering
     }
   }
 
@@ -42,148 +63,161 @@
     constructor(){
       super();
       this.width = 640; this.height = 360;
+      this.laps = LAPS;
       this.setTrack('oval');
       this.setAI('normal');
       this.restart();
     }
 
-    setTrack(name){ this.trackKey=name; this.track=TRACKS[name]; }
+    setTrack(name){ this.trackKey=name; this.track=TRACKS[name]; this.gates=buildGates(this.track.waypoints); }
     setAI(level){ this.aiLevel=level; this.aiCfg = AI_LEVELS[level]; }
 
     spawnCars(){
-      const [sx,sy] = this.track.waypoints[0];
-      const [sx2,sy2] = this.track.waypoints[1];
-      const ang = Math.atan2(sy2-sy, sx2-sx);
-      const line = [ {x:sx-10,y:sy-10}, {x:sx-10,y:sy+10}, {x:sx+10,y:sy-10}, {x:sx+10,y:sy+10} ];
+      const g = this.gates[0];
+      const nx = -g.ty, ny = g.tx; // across the track
+      const a = Math.atan2(g.ty, g.tx);
+      // 2x2 grid behind the start line: [distance along track, offset across]. Player starts at the back.
+      const slots = [ [-22,-10],[-22,10],[-46,-10],[-46,10] ];
+      const place = ([u,v]) => ({ x: g.x + g.tx*u + nx*v, y: g.y + g.ty*u + ny*v, a });
       const colors = ['#f43f5e','#60a5fa','#f59e0b'];
-      this.cars = [];
-      this.player = new Car({ x: sx-18, y: sy+12, a: ang, color:'#34d399', isPlayer:true });
+      this.cars = colors.map((color,i) => new Car({ ...place(slots[i]), color, ai:true }));
+      this.player = new Car({ ...place(slots[3]), color:'#34d399', isPlayer:true });
       this.cars.push(this.player);
-      for (let i=0;i<3;i++){
-        const jitter = (i-1)*10;
-        const ai = new Car({ x: sx-20-(i*10), y: sy-10+(i*12), a: ang, color: colors[i%colors.length], ai: { level:this.aiLevel } });
-        this.cars.push(ai);
-      }
     }
 
     restart(){
       this.spawnCars();
-      this.time=0; this.countdown=1.2; // small go delay
-      this.finishedOrder = []; // placement order
-      this.emit('lap', { car: this.player, lap: 1, total: this.player.lapsTotal });
-      this.emit('pos', 1);
+      this.countdown = COUNTDOWN; this.lastCount = null;
+      this.clock = 0;           // seconds since GO
+      this.goCleared = false;
+      this.finishedOrder = [];
+      this.emit('lap', { lap: 1, total: LAPS });
       this.emit('time', 0);
+      this.emit('pos', this.placeOf(this.player));
+      this.emit('status', '');
     }
 
     input(dir){ this.inputDir = dir; }
 
+    // Move along heading; the canvas edge acts as a wall that scrubs speed
+    move(c, dt, scrub){
+      c.x += Math.cos(c.a)*c.speed*dt; c.y += Math.sin(c.a)*c.speed*dt;
+      const m = 10;
+      if (c.x<m || c.x>this.width-m || c.y<m || c.y>this.height-m){
+        c.x = Math.max(m, Math.min(this.width-m, c.x));
+        c.y = Math.max(m, Math.min(this.height-m, c.y));
+        c.speed *= decay(scrub, dt);
+      }
+    }
+
     updatePlayer(dt){
       const p = this.player; if (p.finished) return;
-      const ACCEL = 220, TURN = 3.0, FRICTION = 0.98, BRAKE = 280, MAXS = 170;
-      let ax=0, ay=0;
-      if (this.inputDir){
-        if (this.inputDir.throttle>0){ p.speed = Math.min(MAXS, p.speed + ACCEL*dt); }
-        if (this.inputDir.throttle<0){ p.speed = Math.max(-MAXS*0.4, p.speed - BRAKE*dt); }
-        if (this.inputDir.turn){ p.a += this.inputDir.turn * TURN * dt * (1.0 + Math.abs(p.speed)/200); }
+      const C = PLAYER, inp = this.inputDir || {};
+      if (inp.throttle > 0) p.speed = Math.min(C.maxSpeed, p.speed + C.accel*dt);
+      else if (inp.throttle < 0) p.speed = Math.max(-C.maxSpeed*C.reverse, p.speed - C.brake*dt);
+      if (inp.turn){
+        // Needs a little speed to steer, steering softens at top speed, reversing flips it
+        const s = Math.abs(p.speed);
+        const grip = Math.min(1, s/40) * (1 - 0.3*s/C.maxSpeed);
+        p.a += inp.turn * C.turn * grip * Math.sign(p.speed) * dt;
       }
-      // velocity from speed+angle
-      p.vx = Math.cos(p.a) * p.speed;
-      p.vy = Math.sin(p.a) * p.speed;
-      // integrate
-      p.x += p.vx*dt; p.y += p.vy*dt;
-      // soft bounds
-      if (p.x<10) { p.x=10; p.speed*=0.7; }
-      if (p.x>this.width-10) { p.x=this.width-10; p.speed*=0.7; }
-      if (p.y<10) { p.y=10; p.speed*=0.7; }
-      if (p.y>this.height-10) { p.y=this.height-10; p.speed*=0.7; }
-      // friction
-      p.speed *= FRICTION;
+      this.move(p, dt, 0.7);
+      p.speed *= decay(C.friction, dt);
       p.time += dt;
       this.handleProgress(p);
     }
 
     updateAI(dt){
+      const cfg = this.aiCfg, n = this.gates.length;
       for (const c of this.cars){
         if (!c.ai || c.finished) continue;
-        const cfg = this.aiCfg;
-        const wp = this.track.waypoints[c.wp % this.track.waypoints.length];
-        // steer to waypoint with a bit of jitter based on level
-        const jitter = ((Math.random()*2-1)*cfg.jitter);
-        const tx = wp[0] + jitter, ty = wp[1] + jitter;
-        const angTo = Math.atan2(ty - c.y, tx - c.x);
-        let angDiff = angNorm(angTo - c.a);
+        const g = this.gates[c.target];
+        // aim at the waypoint, shifted sideways by this car's lane offset
+        const tx = g.x - g.ty*c.laneOff, ty = g.y + g.tx*c.laneOff;
+        const angDiff = angNorm(Math.atan2(ty-c.y, tx-c.x) - c.a);
         c.a += Math.sign(angDiff) * Math.min(Math.abs(angDiff), cfg.turn*dt);
-        // throttle towards target
-        const d = Math.hypot(tx - c.x, ty - c.y);
-        const want = Math.min(cfg.maxSpeed, Math.max(60, d * 2.0));
+        // ease off near the waypoint, full speed on the straights
+        const d = Math.hypot(tx-c.x, ty-c.y);
+        const want = Math.min(cfg.maxSpeed, Math.max(60, d*2));
         if (c.speed < want) c.speed = Math.min(want, c.speed + cfg.accel*dt);
         else c.speed = Math.max(want, c.speed - cfg.accel*0.6*dt);
-        // integrate
-        c.vx = Math.cos(c.a) * c.speed;
-        c.vy = Math.sin(c.a) * c.speed;
-        c.x += c.vx*dt; c.y += c.vy*dt;
-        // bounds and drag
-        if (c.x<10) { c.x=10; c.speed*=0.8; }
-        if (c.x>this.width-10) { c.x=this.width-10; c.speed*=0.8; }
-        if (c.y<10) { c.y=10; c.speed*=0.8; }
-        if (c.y>this.height-10) { c.y=this.height-10; c.speed*=0.8; }
-        c.speed *= 0.992;
+        this.move(c, dt, 0.8);
+        c.speed *= decay(0.992, dt);
         c.time += dt;
         this.handleProgress(c);
-        // switch wp
-        if (dist({x:tx,y:ty}, c) < cfg.look) { c.wp = (c.wp + 1) % this.track.waypoints.length; }
-      }
-    }
-
-    handleProgress(car){
-      // progress measured by current waypoint index
-      // lap increment when car crosses from last wp to wp0
-      const n = this.track.waypoints.length;
-      const wp = car.wp % n;
-      const target = this.track.waypoints[wp];
-      // if close enough, advance
-      const close = Math.hypot(target[0]-car.x, target[1]-car.y) < 26;
-      if (close) {
-        car.wp = (car.wp + 1) % n;
-        if (car.wp === 0){
-          // completed a lap
-          car.lap += 1;
-          if (car.isPlayer) this.emit('lap', { car, lap: Math.min(car.lap, car.lapsTotal), total: car.lapsTotal });
-          if (car.lap > car.lapsTotal) this.finish(car);
+        // steer for the next waypoint early, but never more than one past the gate still owed
+        // (on tracks that fold back on themselves a later waypoint can look "passed" too soon)
+        const ahead = (c.target - c.gate + n) % n;
+        if (ahead > 1){ c.target = c.gate; c.laneOff = (Math.random()*2-1) * cfg.lane; }
+        else if (ahead === 0 && (d < cfg.look || this.crossed(c, c.target))){
+          c.target = (c.target + 1) % n;
+          c.laneOff = (Math.random()*2-1) * cfg.lane;
         }
       }
     }
+
+    // Has the car crossed gate i (past the line through the waypoint, and near it)?
+    crossed(c, i){
+      const g = this.gates[i];
+      const dx = c.x-g.x, dy = c.y-g.y;
+      return dx*g.tx + dy*g.ty >= 0 && Math.hypot(dx,dy) < GATE_RADIUS;
+    }
+
+    handleProgress(car){
+      if (!this.crossed(car, car.gate)) return;
+      if (car.gate === 0){
+        if (!car.started) car.started = true;
+        else {
+          car.lap += 1;
+          if (car.lap > LAPS){ this.finish(car); return; }
+          if (car.isPlayer) this.emit('lap', { lap: car.lap, total: LAPS });
+        }
+      }
+      car.gate = (car.gate + 1) % this.gates.length;
+    }
+
+    // Gates crossed so far, plus the fraction of the way to the next one
+    progressOf(car){
+      const n = this.gates.length;
+      const next = this.gates[car.gate];
+      const d = Math.hypot(next.x-car.x, next.y-car.y);
+      if (!car.started) return -d/1000;
+      const prev = this.gates[(car.gate-1+n)%n];
+      const seg = Math.hypot(next.x-prev.x, next.y-prev.y) || 1;
+      const passed = (car.lap-1)*n + (car.gate === 0 ? n : car.gate);
+      return passed - 1 + Math.max(0, Math.min(1, 1 - d/seg));
+    }
+
+    standings(){
+      const racing = this.cars.filter(c => !c.finished).sort((a,b) => this.progressOf(b) - this.progressOf(a));
+      return [...this.finishedOrder, ...racing];
+    }
+
+    placeOf(car){ return this.standings().indexOf(car) + 1; }
 
     finish(car){
       if (car.finished) return;
       car.finished = true;
       this.finishedOrder.push(car);
-      if (car.isPlayer){
-        const pos = this.placeOf(car);
-        this.emit('finish', { pos, time: car.time });
-      }
-    }
-
-    placeOf(car){
-      const arr = [...this.cars];
-      arr.sort((a,b)=> (b.lap-a.lap) || (b.wp-a.wp) || (a.time-b.time));
-      return arr.indexOf(car)+1;
+      if (car.isPlayer) this.emit('finish', { pos: this.placeOf(car), time: car.time });
     }
 
     step(dt){
-      if (this.countdown>0){ this.countdown -= dt; if (this.countdown<=0) this.emit('status','Go!'); }
-      this.time += dt; this.emit('time', this.time);
-      if (this.countdown<=0){
+      if (this.countdown > 0){
+        this.countdown -= dt;
+        const n = Math.max(0, Math.ceil(this.countdown));
+        if (n !== this.lastCount){ this.lastCount = n; this.emit('status', n > 0 ? String(n) : 'GO!'); }
+      } else {
+        this.clock += dt;
+        if (!this.goCleared && this.clock > 1){ this.goCleared = true; this.emit('status', ''); }
         this.updatePlayer(dt);
         this.updateAI(dt);
       }
-      // live position update
-      const pos = this.placeOf(this.player);
-      this.emit('pos', pos);
+      this.emit('time', this.player.time);
+      this.emit('pos', this.placeOf(this.player));
     }
   }
 
   global.RaceGame = RaceGame;
-  global.__RACE_CONST = { TRACKS, AI_LEVELS };
+  global.__RACE_CONST = { TRACKS, AI_LEVELS, LAPS };
 })(window);
-
