@@ -38,10 +38,13 @@
   const AI_LEVELS = {
     easy:   { maxSpeed: 120, accel: 120, turn: 2.4, lane: 10, look: 30, band: 0.08 },
     normal: { maxSpeed: 145, accel: 160, turn: 2.8, lane: 8,  look: 34, band: 0.05 },
-    hard:   { maxSpeed: 168, accel: 210, turn: 3.3, lane: 5,  look: 38, band: 0.03 },
+    hard:   { maxSpeed: 162, accel: 200, turn: 3.15, lane: 5, look: 38, band: 0.03 },
   };
 
-  const PLAYER = { accel: 220, brake: 280, maxSpeed: 170, reverse: 0.4, turn: 4.2, friction: 0.98 };
+  // slip values are per-frame (60fps) retention of sideways speed: lower = more grip
+  const PLAYER = { accel: 220, brake: 280, maxSpeed: 170, reverse: 0.4, turn: 4.2, friction: 0.98,
+                   slip: 0.55, grassSlip: 0.75, hbSlip: 0.96, hbTurn: 1.4, hbDrag: 0.985 };
+  const CAR_RADIUS = 7;     // collision radius
   const GRASS_DRAG = { player: 0.93, ai: 0.94 }; // per-frame (60fps) speed decay off the road
 
   function angNorm(a){ while(a>Math.PI) a-=TWOPI; while(a<-Math.PI) a+=TWOPI; return a; }
@@ -118,7 +121,10 @@
 
   class Car{
     constructor({x,y,a,color,isPlayer=false,ai=false}){
-      this.x=x; this.y=y; this.a=a; this.speed=0;
+      this.x=x; this.y=y; this.a=a;
+      this.speed=0;         // speed along the heading
+      this.vx=0; this.vy=0; // actual velocity (the player's can slide sideways)
+      this.skid=0;          // 0..1 how hard the tyres are sliding (for skid marks)
       this.color=color; this.isPlayer=isPlayer; this.ai=ai;
       this.idx=0;           // nearest centerline sample
       this.dist=0;          // distance driven along the road since the start line (negative on the grid)
@@ -171,6 +177,7 @@
       this.emit('time', 0);
       this.emit('pos', this.placeOf(this.player));
       this.emit('status', '');
+      this.emit('reset');
     }
 
     input(dir){ this.inputDir = dir; }
@@ -178,14 +185,15 @@
     // wrap an arc-length difference into [-L/2, L/2)
     wrap(d){ const L = this.road.L; return ((d + L/2) % L + L) % L - L/2; }
 
-    // Move along heading; the canvas edge acts as a wall that scrubs speed
+    // Move by velocity; the canvas edge acts as a wall that scrubs speed
     move(c, dt, scrub){
-      c.x += Math.cos(c.a)*c.speed*dt; c.y += Math.sin(c.a)*c.speed*dt;
+      c.x += c.vx*dt; c.y += c.vy*dt;
       const m = 10;
       if (c.x<m || c.x>this.width-m || c.y<m || c.y>this.height-m){
         c.x = Math.max(m, Math.min(this.width-m, c.x));
         c.y = Math.max(m, Math.min(this.height-m, c.y));
-        c.speed *= decay(scrub, dt);
+        const f = decay(scrub, dt);
+        c.speed *= f; c.vx *= f; c.vy *= f;
       }
     }
 
@@ -212,9 +220,9 @@
       c.offRoad = d > R.half;
 
       // wrong way: moving against the road direction for a moment
-      const [tx,ty] = R.tan[i];
-      const along = (Math.cos(c.a)*tx + Math.sin(c.a)*ty) * Math.sign(c.speed);
-      c.wrongWay = (along < -0.3 && Math.abs(c.speed) > 20) ? c.wrongWay + dt : 0;
+      const [tx,ty] = R.tan[i], v = Math.hypot(c.vx, c.vy);
+      const along = v > 0 ? (c.vx*tx + c.vy*ty) / v : 0;
+      c.wrongWay = (along < -0.3 && v > 20) ? c.wrongWay + dt : 0;
 
       const lapsDone = Math.floor(c.dist / R.L);
       if (lapsDone >= c.lap){
@@ -229,16 +237,26 @@
     updatePlayer(dt){
       const p = this.player; if (p.finished) return;
       const C = PLAYER, inp = this.inputDir || {};
-      if (inp.throttle > 0) p.speed = Math.min(C.maxSpeed, p.speed + C.accel*dt);
-      else if (inp.throttle < 0) p.speed = Math.max(-C.maxSpeed*C.reverse, p.speed - C.brake*dt);
+      // Split velocity into forward and sideways parts relative to the current heading.
+      // Turning rotates the heading only; the velocity catches up as the tyres scrub off the
+      // sideways part. Strong grip normally, very little with the handbrake: that's the drift.
+      const fx = Math.cos(p.a), fy = Math.sin(p.a);
+      let vF = p.vx*fx + p.vy*fy, vS = -p.vx*fy + p.vy*fx;
+      if (inp.throttle > 0) vF = Math.min(C.maxSpeed, vF + C.accel*dt);
+      else if (inp.throttle < 0) vF = Math.max(-C.maxSpeed*C.reverse, vF - C.brake*dt);
+      const hb = !!inp.handbrake && Math.abs(vF) > 30;
+      vS *= decay(hb ? C.hbSlip : p.offRoad ? C.grassSlip : C.slip, dt);
+      vF *= decay(p.offRoad ? GRASS_DRAG.player : hb ? C.hbDrag : C.friction, dt);
+      p.vx = fx*vF - fy*vS; p.vy = fy*vF + fx*vS;
       if (inp.turn){
         // Needs a little speed to steer, steering softens at top speed, reversing flips it
-        const s = Math.abs(p.speed);
+        const s = Math.abs(vF);
         const grip = Math.min(1, s/40) * (1 - 0.3*s/C.maxSpeed);
-        p.a += inp.turn * C.turn * grip * Math.sign(p.speed) * dt;
+        p.a += inp.turn * C.turn * grip * (hb ? C.hbTurn : 1) * Math.sign(vF) * dt;
       }
+      p.speed = vF;
+      p.skid = Math.min(1, Math.max(0, (Math.abs(vS) - 25) / 60) + (hb ? 0.4 : 0));
       this.move(p, dt, 0.7);
-      p.speed *= decay(p.offRoad ? GRASS_DRAG.player : C.friction, dt);
       p.time += dt;
       this.trackCar(p, dt);
     }
@@ -262,6 +280,7 @@
         // wander smoothly between lanes
         c.laneTimer -= dt;
         if (c.laneTimer <= 0){ c.laneTarget = (Math.random()*2-1)*cfg.lane; c.laneTimer = 1 + Math.random()*1.5; }
+        this.avoid(c, R);
         c.laneOff += (c.laneTarget - c.laneOff) * Math.min(1, dt*1.5);
         // steer for a point on the road ahead, further ahead at speed
         const ahead = Math.round((cfg.look + Math.abs(c.speed)*0.2) / SAMPLE_STEP);
@@ -278,10 +297,46 @@
         }
         if (c.speed < want) c.speed = Math.min(want, c.speed + cfg.accel*dt);
         else c.speed = Math.max(want, c.speed - cfg.accel*1.5*dt);
-        this.move(c, dt, 0.8);
         c.speed *= decay(c.offRoad ? GRASS_DRAG.ai : 0.992, dt);
+        c.vx = Math.cos(c.a)*c.speed; c.vy = Math.sin(c.a)*c.speed;
+        this.move(c, dt, 0.8);
         c.time += dt;
         this.trackCar(c, dt);
+      }
+    }
+
+    // If a car is close ahead in our lane and not pulling away, pick the other side of it
+    avoid(c, R){
+      const fx = Math.cos(c.a), fy = Math.sin(c.a), room = R.half - 8;
+      for (const o of this.cars){
+        if (o === c || o.finished) continue;
+        const dx = o.x-c.x, dy = o.y-c.y;
+        const along = dx*fx + dy*fy, side = -dx*fy + dy*fx;
+        if (along > 0 && along < 44 && Math.abs(side) < 14 && o.speed < c.speed + 10){
+          c.laneTarget = Math.max(-room, Math.min(room, c.laneOff + (side > 0 ? -16 : 16)));
+          c.laneTimer = 0.8;
+          return;
+        }
+      }
+    }
+
+    // Cars bump: push overlapping cars apart and trade some speed along the line between them.
+    // Finished cars are ghosts so they don't block the line.
+    collide(){
+      const cars = this.cars.filter(c => !c.finished), minD = CAR_RADIUS*2;
+      for (let i=0;i<cars.length;i++) for (let j=i+1;j<cars.length;j++){
+        const a = cars[i], b = cars[j];
+        const dx = b.x-a.x, dy = b.y-a.y, d = Math.hypot(dx,dy);
+        if (d >= minD || d === 0) continue;
+        const nx = dx/d, ny = dy/d, push = (minD-d)/2;
+        a.x -= nx*push; a.y -= ny*push; b.x += nx*push; b.y += ny*push;
+        const closing = (b.vx-a.vx)*nx + (b.vy-a.vy)*ny;
+        if (closing < 0){
+          const k = -(1 + 0.3) * closing / 2; // equal masses, a little bounce
+          a.vx -= k*nx; a.vy -= k*ny; b.vx += k*nx; b.vy += k*ny;
+          for (const c of [a,b]) c.speed = c.vx*Math.cos(c.a) + c.vy*Math.sin(c.a);
+          if ((a.isPlayer || b.isPlayer) && closing < -15) this.emit('bump', Math.min(1, -closing/120));
+        }
       }
     }
 
@@ -314,6 +369,7 @@
         if (this.statusUntil && this.clock > this.statusUntil){ this.statusUntil = 0; this.emit('status', ''); }
         this.updatePlayer(dt);
         this.updateAI(dt);
+        this.collide();
       }
       this.emit('time', this.player.time);
       this.emit('pos', this.placeOf(this.player));

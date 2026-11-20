@@ -39,7 +39,7 @@
   // Every way of starting over goes through here so the modal, status and input are always reset
   function resetRace(){
     closeModal();
-    input.throttle = 0; input.turn = 0;
+    input.throttle = 0; input.turn = 0; input.handbrake = false;
     game.restart();
     canvas && canvas.focus();
   }
@@ -52,7 +52,7 @@
   aiSel.addEventListener('change', () => { game.setAI(aiSel.value); resetRace(); });
 
   // input
-  const input = { throttle: 0, turn: 0 };
+  const input = { throttle: 0, turn: 0, handbrake: false };
   function onKey(e){
     const k=(e.key||'').toLowerCase(); const c=e.code||'';
     if (k.startsWith('arrow')||c.startsWith('Arrow')) e.preventDefault();
@@ -62,6 +62,7 @@
     if (k==='arrowdown'||k==='s'||c==='ArrowDown'||c==='KeyS') input.throttle = -1;
     if (k==='arrowleft'||k==='a'||c==='ArrowLeft'||c==='KeyA') input.turn = -1;
     if (k==='arrowright'||k==='d'||c==='ArrowRight'||c==='KeyD') input.turn = 1;
+    if (k===' '||c==='Space'){ e.preventDefault(); input.handbrake = true; }
   }
   function onKeyUp(e){
     const k=(e.key||'').toLowerCase(); const c=e.code||'';
@@ -69,6 +70,7 @@
     if (k==='arrowdown'||k==='s'||c==='ArrowDown'||c==='KeyS') if (input.throttle<0) input.throttle = 0;
     if (k==='arrowleft'||k==='a'||c==='ArrowLeft'||c==='KeyA') if (input.turn<0) input.turn = 0;
     if (k==='arrowright'||k==='d'||c==='ArrowRight'||c==='KeyD') if (input.turn>0) input.turn = 0;
+    if (k===' '||c==='Space') input.handbrake = false;
   }
   document.addEventListener('keydown', onKey, { passive:false });
   document.addEventListener('keyup', onKeyUp, { passive:false });
@@ -88,13 +90,21 @@
     const dt = Math.min(0.05, (t-last)/1000); last=t;
     game.input(input);
     game.step(dt);
-    render();
+    render(dt);
     requestAnimationFrame(loop);
   }
 
-  function render(){
+  function render(dt){
+    ctx.save();
+    if (shake > 0.2){ ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake); }
+    shake *= Math.pow(0.85, dt*60);
     ctx.drawImage(trackLayer(), 0, 0);
+    if (game.countdown <= 0) layMarks();
+    ctx.drawImage(marks, 0, 0);
+    updateParticles(dt);
+    drawParticles();
     for (const c of game.cars){ drawCar(c); }
+    ctx.restore();
     drawWrongWay();
     drawCountdown();
   }
@@ -173,9 +183,68 @@
     ctx.restore();
   }
 
+  // --- Effects: skid marks, dust/smoke, bump shake ---
+  // Skid marks build up on their own layer for the whole race
+  const marks = document.createElement('canvas');
+  marks.width = canvas.width; marks.height = canvas.height;
+  const mctx = marks.getContext('2d');
+  const lastWheels = new Map(); // car -> previous rear wheel positions while skidding
+  let particles = [];
+  let shake = 0;
+
+  game.on('reset', () => {
+    mctx.clearRect(0, 0, marks.width, marks.height);
+    lastWheels.clear(); particles = []; shake = 0;
+  });
+  game.on('bump', k => { shake = Math.max(shake, 2 + 5*k); });
+
+  function rearWheels(c){
+    const fx = Math.cos(c.a), fy = Math.sin(c.a), bx = c.x - fx*7, by = c.y - fy*7;
+    return [[bx - fy*4, by + fx*4], [bx + fy*4, by - fx*4]];
+  }
+
+  function layMarks(){
+    for (const c of game.cars){
+      if (c.finished || c.skid < 0.05){ lastWheels.delete(c); continue; }
+      const now = rearWheels(c), prev = lastWheels.get(c);
+      if (prev){
+        mctx.strokeStyle = `rgba(8,10,14,${0.25 + 0.35*c.skid})`; mctx.lineWidth = 2; mctx.lineCap = 'round';
+        for (let w = 0; w < 2; w++){ mctx.beginPath(); mctx.moveTo(prev[w][0], prev[w][1]); mctx.lineTo(now[w][0], now[w][1]); mctx.stroke(); }
+      }
+      lastWheels.set(c, now);
+    }
+  }
+
+  function updateParticles(dt){
+    if (game.countdown <= 0){
+      for (const c of game.cars){
+        if (c.finished) continue;
+        const v = Math.hypot(c.vx, c.vy);
+        const dust = c.offRoad && v > 30, smoke = c.skid > 0.3;
+        if (!(dust || smoke) || Math.random() > dt*40) continue;
+        const [[x, y]] = rearWheels(c);
+        particles.push({
+          x, y, vx: -c.vx*0.15 + (Math.random()-0.5)*20, vy: -c.vy*0.15 + (Math.random()-0.5)*20,
+          life: 0.6, max: 0.6, r: 2 + Math.random()*2,
+          color: dust ? '140,110,60' : '200,205,215'
+        });
+      }
+    }
+    for (const p of particles){ p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt; p.r += dt*6; }
+    particles = particles.filter(p => p.life > 0).slice(-300);
+  }
+
+  function drawParticles(){
+    for (const p of particles){
+      ctx.fillStyle = `rgba(${p.color},${0.35 * p.life / p.max})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
   function drawCar(c){
     ctx.save();
     ctx.translate(c.x, c.y); ctx.rotate(c.a);
+    if (c.finished) ctx.globalAlpha = 0.35; // finished cars are ghosts
     ctx.fillStyle = c.color;
     // triangle car
     ctx.beginPath();
