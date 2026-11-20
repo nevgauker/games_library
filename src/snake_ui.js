@@ -725,7 +725,7 @@
     const big = title.length <= 2;
     ctx.font = `700 ${big ? 72 : 32}px system-ui, sans-serif`;
     // Sit in the upper part of the board so the snake (spawned at center) stays visible.
-    const top = H * 0.24;
+    const top = H * 0.19;
     ctx.fillText(title, W / 2, top);
     ctx.font = '500 14px system-ui, sans-serif';
     ctx.fillStyle = P.sub;
