@@ -6,31 +6,39 @@
     <title>Snake</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
-  <body>
+  <body class="snake-page">
     <header class="topbar">
       <h1>Snake</h1>
       <div class="controls">
         <button id="pause-btn" type="button" aria-pressed="false" aria-label="Pause/Resume">Pause</button>
-        <button id="wrap-btn" type="button" aria-pressed="false" aria-label="Toggle wrap walls">Wrap</button>
-        <button id="sound-btn" type="button" aria-pressed="false" aria-label="Toggle sound">Sound</button>
+        <button id="wrap-btn" type="button" aria-pressed="false" aria-label="Toggle wrap walls">Walls: Classic</button>
+        <button id="sound-btn" type="button" aria-pressed="false" aria-label="Toggle sound">Sound: Off</button>
         <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
-        <button id="restart-btn" type="button">Restart (R)</button>
+        <button id="restart-btn" type="button" title="Restart (R)">Restart</button>
       </div>
     </header>
 
     <main>
-      <section class="hud">
-        <div>Score: <span id="score">0</span></div>
-        <div>Length: <span id="length">3</span></div>
-        <div>Speed: <span id="speed">1.0x</span></div>
-        <div>Best: <span id="best">—</span></div>
-        <div>Goals: <span id="goals">0/5</span></div>
-        <div>Tip: Arrows/WASD to move. Avoid walls and yourself.</div>
+      <section class="hud snake-hud">
+        <div class="snake-stat"><span class="snake-label">Score</span><span id="score" class="snake-val">0</span></div>
+        <div class="snake-stat"><span class="snake-label" id="best-label">Best</span><span id="best" class="snake-val">—</span></div>
+        <div class="snake-stat"><span class="snake-label">Length</span><span id="length" class="snake-val">3</span></div>
+        <div class="snake-stat"><span class="snake-label">Speed</span><span id="speed" class="snake-val">1.0x</span></div>
+        <button id="goals-btn" type="button" class="snake-goals-btn" title="Goals (G)">Goals <span id="goals">0/5</span></button>
         <div id="status" aria-live="polite"></div>
       </section>
-      <section class="backspace-wrap">
-        <canvas id="game" width="384" height="384" aria-label="Snake board"></canvas>
+      <section class="retro-wrap">
+        <div class="retro-screen" id="board">
+          <canvas id="game" width="384" height="384" aria-label="Snake board"></canvas>
+          <div class="scanlines" aria-hidden="true"></div>
+        </div>
       </section>
+      <div id="dpad" class="dpad" aria-label="Direction pad">
+        <button type="button" class="up" data-dir="up" aria-label="Up">▲</button>
+        <button type="button" class="left" data-dir="left" aria-label="Left">◀</button>
+        <button type="button" class="right" data-dir="right" aria-label="Right">▶</button>
+        <button type="button" class="down" data-dir="down" aria-label="Down">▼</button>
+      </div>
     </main>
 
     <footer class="footer">
@@ -42,20 +50,32 @@
       </small>
     </footer>
 
-    <!-- Mobile virtual joystick -->
-    <div id="vjoy" class="vjoy" aria-hidden="true">
-      <div class="vjoy-base">
-        <div class="vjoy-stick"></div>
-      </div>
-    </div>
-
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-box">
         <h2 id="modal-title">Game Over</h2>
-        <p id="modal-message">You crashed. Press Restart to try again.</p>
+        <p id="modal-message" class="snake-cause"></p>
+        <p id="modal-badge" class="snake-badge hidden">★ New best!</p>
+        <dl class="snake-stats">
+          <div><dt>Score</dt><dd id="ms-score">0</dd></div>
+          <div><dt id="ms-best-label">Best</dt><dd id="ms-best">0</dd></div>
+          <div><dt>Length</dt><dd id="ms-length">3</dd></div>
+          <div><dt>Apples</dt><dd id="ms-apples">0</dd></div>
+          <div><dt>Time</dt><dd id="ms-time">0:00</dd></div>
+        </dl>
+        <div id="modal-goals" class="snake-unlocked hidden"></div>
         <div class="modal-actions">
-          <button id="modal-restart" type="button">Restart</button>
           <button id="modal-close" type="button">Close</button>
+          <button id="modal-restart" type="button" class="primary">Play Again</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="goals-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="goals-title">
+      <div class="modal-box">
+        <h2 id="goals-title">Goals</h2>
+        <ul id="goals-list" class="snake-goal-list"></ul>
+        <div class="modal-actions">
+          <button id="goals-close" type="button" class="primary">Close</button>
         </div>
       </div>
     </div>
@@ -63,4 +83,4 @@
     <script src="src/snake.js"></script>
     <script src="src/snake_ui.js"></script>
   </body>
-  </html>
+</html>
