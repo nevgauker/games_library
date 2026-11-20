@@ -497,6 +497,7 @@ canvas#game { width: min(960px, 92vw); height: auto; border: 1px solid rgba(255,
   -webkit-user-select: none;
 }
 .pump-btn:active { transform: scale(0.95); }
+.pump-btn.cooling { opacity: 0.5; }
 @media (hover: none) and (pointer: coarse) {
   .digger-page .retro-wrap { padding-bottom: 150px; }
   .digger-page .pump-btn { display: block; }

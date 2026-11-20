@@ -10,6 +10,7 @@
   const bestEl = document.getElementById("best");
   const livesEl = document.getElementById("lives");
   const emeraldsEl = document.getElementById("emeralds");
+  const monstersEl = document.getElementById("monsters");
   const statusEl = document.getElementById("status");
 
   const modal = document.getElementById("modal");
@@ -91,14 +92,25 @@
   });
   game.on("lives", renderLives);
   game.on("emeralds", (v) => (emeraldsEl.textContent = String(v)));
+  game.on("monsters", (v) => (monstersEl.textContent = String(v)));
+
+  // Floating score text, in tile coordinates
+  const popups = [];
+  game.on("popup", ({ x, y, text, kind }) => {
+    popups.push({ x, y, text, kind, born: performance.now() });
+    if (popups.length > 12) popups.shift();
+  });
   game.on("status", (v) => flashStatus(v));
   game.on("pause", (p) => {
     pauseBtn.textContent = p ? "Resume (P)" : "Pause (P)";
     pauseBtn.setAttribute("aria-pressed", String(p));
   });
-  game.on("win", ({ level, score, final, nextLevel }) => {
+  game.on("win", ({ level, score, reason, final, nextLevel }) => {
     if (final) openModal("You Win!", `All ${C.MAX_LEVEL} levels cleared. Final score ${score}.${score > bestAtStart ? " New best!" : ""}`, false);
-    else openModal("Level Clear", `Level ${level} complete — score ${score}. Ready for level ${nextLevel}?`, true);
+    else {
+      const how = reason === "monsters" ? "Every monster cleared!" : "Every emerald collected!";
+      openModal("Level Clear", `${how} Level ${level} complete — score ${score}. Ready for level ${nextLevel}?`, true);
+    }
   });
   game.on("lose", ({ level, score }) => {
     openModal("Game Over", `You reached level ${level} with ${score} points.${score > bestAtStart ? " New best!" : ""}`, false);
@@ -299,7 +311,7 @@
 
   function drawBag(b, bf) {
     const shake = b.shaking ? ((Math.floor(b.shakeTimer * 24) % 2 === 0) ? -2 : 2) : 0;
-    const px = b.x * T + shake;
+    const px = lerp(b.px, b.x, game.playerFrac()) * T + shake; // pushes move with the player
     const py = lerp(b.py, b.y, bf) * T;
     if (b.gold) {
       // a spilled pile of coins
@@ -326,9 +338,21 @@
 
   function drawMonster(m, mf) {
     const x = lerp(m.px, m.x, mf) * T, y = lerp(m.py, m.y, mf) * T;
-    ctx.fillStyle = "#ef4444";
+    const stunned = m.stun > 0;
+    // blink red/blue in the last half second before a stunned monster recovers
+    const recovering = stunned && m.stun < 0.5 && Math.floor(performance.now() / 90) % 2 === 0;
+    ctx.fillStyle = stunned && !recovering ? "#60a5fa" : "#ef4444";
     roundRect(x + 5, y + 5, T - 10, T - 8, 9);
     ctx.fill();
+    if (stunned) {
+      // dizzy stars orbiting the head
+      const a = performance.now() / 200;
+      ctx.fillStyle = "#fde047";
+      for (let i = 0; i < 3; i++) {
+        const t = a + (i * Math.PI * 2) / 3;
+        ctx.fillRect(x + 16 + Math.cos(t) * 10 - 1.5, y + 4 + Math.sin(t) * 3 - 1.5, 3, 3);
+      }
+    }
     // jagged feet
     ctx.fillStyle = "#020617";
     for (let i = 0; i < 3; i++) {
@@ -428,40 +452,92 @@
   }
 
   function drawOverlay() {
-    let title = null, sub = null, color = "#fde047";
+    let title = null, color = "#fde047";
+    const subs = [];
     if (game.paused) {
       title = "PAUSED";
-      sub = isTouch ? "Tap the screen or move to resume" : "P / Esc to resume";
+      subs.push(isTouch ? "Tap the screen or move to resume" : "P / Esc to resume");
       color = "#f8fafc";
     } else if (game.state === "ready" && game.readyTimer === null) {
       title = isTouch ? "MOVE TO START" : "PRESS AN ARROW KEY";
-      sub = isTouch
-        ? `Level ${game.level} · Joystick to dig · PUMP to fire`
-        : `Level ${game.level} · Arrows/WASD dig · Space pumps · P pauses`;
+      subs.push(isTouch
+        ? `Level ${game.level} · Joystick digs · PUMP stuns, again pops`
+        : `Level ${game.level} · Arrows/WASD dig · Space pumps · P pauses`);
+      subs.push("Grab every emerald or beat every monster · Push bags sideways");
     } else if (game.state === "ready") {
       title = "READY!";
-      sub = `${game.lives} ${game.lives === 1 ? "life" : "lives"} left`;
+      subs.push(`${game.lives} ${game.lives === 1 ? "life" : "lives"} left`);
     }
     if (!title) return;
 
     const cy = game.height / 2;
-    const h = sub ? 64 : 44;
+    const h = 44 + subs.length * 20;
+    const top = cy - h / 2;
     ctx.fillStyle = "rgba(0,0,0,0.72)";
-    ctx.fillRect(0, cy - h / 2, game.width, h);
+    ctx.fillRect(0, top, game.width, h);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = color;
     ctx.font = "bold 22px ui-monospace, Menlo, Consolas, monospace";
-    ctx.fillText(title, game.width / 2, sub ? cy - 11 : cy);
-    if (sub) {
-      ctx.fillStyle = "#cbd5e1";
-      ctx.font = "13px ui-monospace, Menlo, Consolas, monospace";
-      ctx.fillText(sub, game.width / 2, cy + 16);
+    ctx.fillText(title, game.width / 2, top + 24);
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "13px ui-monospace, Menlo, Consolas, monospace";
+    subs.forEach((s, i) => ctx.fillText(s, game.width / 2, top + 50 + i * 20));
+  }
+
+  function drawNest(now) {
+    const n = game.nest();
+    const cx = n.x * T + T / 2, cy = n.y * T + T / 2;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+    const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, T * 0.9);
+    glow.addColorStop(0, `rgba(239,68,68,${0.25 + 0.15 * pulse + n.flash})`);
+    glow.addColorStop(1, "rgba(239,68,68,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(cx - T, cy - T, T * 2, T * 2);
+  }
+
+  function drawPumpCharge() {
+    const c = game.pumpCharge();
+    if (c >= 1 || game.state !== "playing") return;
+    const pp = playerPos();
+    ctx.strokeStyle = "rgba(251,191,36,0.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pp.x + T / 2, pp.y + T / 2, T / 2 + 1, -Math.PI / 2, -Math.PI / 2 + c * Math.PI * 2);
+    ctx.stroke();
+  }
+
+  const POPUP_MS = 900;
+  const POPUP_COLOR = { streak: "#86efac", gold: "#fbbf24", kill: "#fca5a5" };
+  function drawPopups(now) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 13px ui-monospace, Menlo, Consolas, monospace";
+    for (let i = popups.length - 1; i >= 0; i--) {
+      const p = popups[i];
+      const t = (now - p.born) / POPUP_MS;
+      if (t >= 1) { popups.splice(i, 1); continue; }
+      ctx.globalAlpha = 1 - t * t;
+      ctx.fillStyle = "#020617";
+      const x = p.x * T + T / 2, y = p.y * T + T / 2 - t * 24;
+      ctx.fillText(p.text, x + 1, y + 1);
+      ctx.fillStyle = POPUP_COLOR[p.kind] || "#f8fafc";
+      ctx.fillText(p.text, x, y);
     }
+    ctx.globalAlpha = 1;
+  }
+
+  let pumpWasReady = null;
+  function syncPumpButton() {
+    const ready = game.pumpReady();
+    if (ready === pumpWasReady) return;
+    pumpWasReady = ready;
+    pumpBtn.classList.toggle("cooling", !ready);
   }
 
   function render(now) {
     drawField();
+    drawNest(now);
     drawEmeralds(now);
     const bf = game.bagFrac();
     for (const b of game.bags) drawBag(b, bf);
@@ -469,6 +545,8 @@
     for (const m of game.monsters) if (m.alive) drawMonster(m, mf);
     drawPump();
     drawPlayer(now);
+    drawPumpCharge();
+    drawPopups(now);
     drawOverlay();
   }
 
@@ -479,11 +557,13 @@
     last = now;
     game.step(dt);
     updateStatus(now);
+    if (isTouch) syncPumpButton();
     render(now);
     requestAnimationFrame(loop);
   }
 
   renderLives(game.lives);
   emeraldsEl.textContent = String(game.emeralds.size);
+  monstersEl.textContent = String(game.monstersLeft());
   requestAnimationFrame(loop);
 })();
