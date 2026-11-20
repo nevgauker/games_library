@@ -11,7 +11,7 @@
       <h1>Snake</h1>
       <div class="controls">
         <button id="pause-btn" type="button" aria-pressed="false" aria-label="Pause/Resume">Pause</button>
-        <button id="wrap-btn" type="button" aria-pressed="false" aria-label="Toggle wrap walls">Walls: Classic</button>
+        <button id="wrap-btn" type="button" aria-pressed="false" aria-label="Change mode">Mode: Classic</button>
         <button id="sound-btn" type="button" aria-pressed="false" aria-label="Toggle sound">Sound: Off</button>
         <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
         <button id="restart-btn" type="button" title="Restart (R)">Restart</button>
@@ -23,6 +23,7 @@
         <div class="snake-stat"><span class="snake-label">Score</span><span id="score" class="snake-val">0</span></div>
         <div class="snake-stat"><span class="snake-label" id="best-label">Best</span><span id="best" class="snake-val">—</span></div>
         <div class="snake-stat"><span class="snake-label">Length</span><span id="length" class="snake-val">3</span></div>
+        <div class="snake-stat" id="combo-stat"><span class="snake-label">Combo</span><span id="combo" class="snake-val">x1</span></div>
         <div class="snake-stat"><span class="snake-label">Speed</span><span id="speed" class="snake-val">1.0x</span></div>
         <button id="goals-btn" type="button" class="snake-goals-btn" title="Goals (G)">Goals <span id="goals">0/5</span></button>
         <div id="status" aria-live="polite"></div>
@@ -43,7 +44,7 @@
 
     <footer class="footer">
       <small>
-        Classic grid snake. Eat apples, grow long. ·
+        Eat apples, chain combos, grab golden fruit, dodge rocks. ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
@@ -61,6 +62,7 @@
           <div><dt>Length</dt><dd id="ms-length">3</dd></div>
           <div><dt>Apples</dt><dd id="ms-apples">0</dd></div>
           <div><dt>Time</dt><dd id="ms-time">0:00</dd></div>
+          <div><dt>Combo</dt><dd id="ms-combo">x1</dd></div>
         </dl>
         <div id="modal-goals" class="snake-unlocked hidden"></div>
         <div class="modal-actions">

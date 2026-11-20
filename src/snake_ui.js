@@ -8,6 +8,7 @@
   const $ = (id) => document.getElementById(id);
   const scoreEl = $('score'), lengthEl = $('length'), speedEl = $('speed');
   const bestEl = $('best'), bestLabelEl = $('best-label'), goalsEl = $('goals'), statusEl = $('status');
+  const comboEl = $('combo'), comboStat = $('combo-stat');
   const restartBtn = $('restart-btn'), themeBtn = $('theme-btn'), pauseBtn = $('pause-btn');
   const wrapBtn = $('wrap-btn'), soundBtn = $('sound-btn'), goalsBtn = $('goals-btn');
   const boardEl = $('board'), dpad = $('dpad');
@@ -26,7 +27,13 @@
   const game = new SnakeGame();
   const TILE = game.tile;
   const W = game.width, H = game.height; // logical drawing size
-  game.setWrap(load('snake.wrap', '0') === '1');
+  // Saved mode (migrating the older wrap on/off setting).
+  game.setMode(load('snake.mode', load('snake.wrap', '0') === '1' ? 'wrap' : 'classic'));
+  const MODE_INFO = {
+    classic: 'Walls are deadly · rocks appear as you grow',
+    wrap: 'Edges loop around · rocks appear as you grow',
+    zen: 'No crashes, no rocks · just relax',
+  };
 
   // ---- High-DPI canvas: backing store matches displayed size × devicePixelRatio,
   // all drawing happens in logical board units via a transform.
@@ -59,10 +66,11 @@
   if (load('snake.best.classic', null) === null && load('snake.best', null) !== null) {
     store('snake.best.classic', load('snake.best', '0'));
   }
-  const modeName = () => game.wrapWalls ? 'Wrap' : 'Classic';
+  const modeName = () => game.rules.label;
   const bestKey = () => `snake.best.${game.mode}`;
   function loadBest(){ const v = Number(load(bestKey(), '0')); return Number.isFinite(v) ? v : 0; }
   function saveBest(v){ store(bestKey(), String(v)); }
+  let runStartBest = loadBest(); // to detect "New best!" while saving live
   function updateBestUI(){
     bestEl.textContent = String(loadBest() || '—');
     if (bestLabelEl) bestLabelEl.textContent = `Best · ${modeName()}`;
@@ -73,12 +81,21 @@
     { key: 'firstBite', label: 'First Bite', desc: 'Eat your first apple.', check: (c) => c.eats >= 1 },
     { key: 'length10', label: 'Grow to 10', desc: 'Reach a length of 10.', check: (c) => c.length >= 10 },
     { key: 'score100', label: 'Score 100', desc: 'Score 100 points in one run.', check: (c) => c.score >= 100 },
-    { key: 'survive60', label: 'Survive 60s', desc: 'Stay alive for a full minute.', check: (c) => c.elapsed >= 60 },
-    { key: 'wrapBite', label: 'Wrap Bite', desc: 'Eat an apple with Wrap walls on.', check: (c) => c.wrapBite === true },
+    { key: 'survive60', label: 'Survive 60s', desc: 'Stay alive for a full minute in Classic or Wrap.', check: (c) => c.mode !== 'zen' && c.elapsed >= 60 },
+    { key: 'wrapBite', label: 'Wrap Bite', desc: 'Eat an apple in Wrap mode.', check: (c) => c.mode === 'wrap' && c.eats >= 1 },
+    { key: 'combo3', label: 'On a Roll', desc: 'Reach a x3 combo.', check: (c) => c.maxCombo >= 3 },
+    { key: 'combo5', label: 'Max Combo', desc: 'Reach a x5 combo.', check: (c) => c.maxCombo >= 5 },
+    { key: 'golden', label: 'Golden Bite', desc: 'Eat a golden fruit before it vanishes.', check: (c) => c.golden >= 1 },
+    { key: 'rocks10', label: 'Rock Garden', desc: 'Survive with 10 rocks on the board.', check: (c) => c.rocks >= 10 },
+    { key: 'classic30', label: 'Long Haul', desc: 'Reach length 30 in Classic.', check: (c) => c.mode === 'classic' && c.length >= 30 },
+    { key: 'zen60', label: 'Inner Peace', desc: 'Reach length 60 in Zen.', check: (c) => c.mode === 'zen' && c.length >= 60 },
   ];
   let goals; try { goals = JSON.parse(load('snake.goals', '{}')) || {}; } catch { goals = {}; }
   let goalCtx, runUnlocked;
-  function resetGoalCtx(){ goalCtx = { eats: 0, length: game.snake.length, score: 0, elapsed: 0, wrapBite: false }; runUnlocked = []; }
+  function resetGoalCtx(){
+    goalCtx = { mode: game.mode, eats: 0, length: game.snake.length, score: 0, elapsed: 0, maxCombo: 1, golden: 0, rocks: 0 };
+    runUnlocked = [];
+  }
   resetGoalCtx();
   function updateGoalsUI(){ goalsEl.textContent = `${GOAL_LIST.filter(g => goals[g.key]).length}/${GOAL_LIST.length}`; }
   function renderGoalsList(){
@@ -147,12 +164,16 @@
       head: '#4ade80', tail: '#15803d', dead: '#64748b', eye: '#f8fafc', pupil: '#0f172a',
       food: '#ef4444', foodHi: 'rgba(255,255,255,0.55)', leaf: '#22c55e', stem: '#a16207', glow: 10,
       shade: 'rgba(2,6,23,0.65)', text: '#e5e7eb', sub: '#94a3b8', pop: '#fde68a',
+      gold: '#fbbf24', goldHi: '#fef3c7', ring: 'rgba(52,211,153,0.85)', ringBg: 'rgba(148,163,184,0.18)',
+      rock: '#57534e', rockHi: '#a8a29e', rockWarn: 'rgba(251,146,60,0.9)',
     },
     light: {
       bg: '#f8fafc', bg2: '#eef2f7', wall: 'rgba(71,85,105,0.5)', wrapWall: '#059669',
       head: '#22c55e', tail: '#166534', dead: '#94a3b8', eye: '#ffffff', pupil: '#0f172a',
       food: '#dc2626', foodHi: 'rgba(255,255,255,0.7)', leaf: '#16a34a', stem: '#92400e', glow: 0,
       shade: 'rgba(248,250,252,0.8)', text: '#0f172a', sub: '#475569', pop: '#b45309',
+      gold: '#f59e0b', goldHi: '#fffbeb', ring: 'rgba(5,150,105,0.85)', ringBg: 'rgba(71,85,105,0.15)',
+      rock: '#78716c', rockHi: '#d6d3d1', rockWarn: 'rgba(234,88,12,0.9)',
     },
   };
   const curTheme = () => document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
@@ -167,9 +188,9 @@
   function syncControls(){
     const inRun = game.inProgress || uiState === 'countdown';
     wrapBtn.disabled = inRun;
-    wrapBtn.title = inRun ? 'Walls can be changed between runs' : '';
-    wrapBtn.textContent = `Walls: ${modeName()}`;
-    wrapBtn.setAttribute('aria-pressed', String(game.wrapWalls));
+    wrapBtn.title = inRun ? 'Mode can be changed between runs' : 'Switch mode: Classic → Wrap → Zen';
+    wrapBtn.textContent = `Mode: ${modeName()}`;
+    if (comboStat) comboStat.classList.toggle('hidden', !game.rules.combo);
     pauseBtn.disabled = !game.inProgress;
     pauseBtn.textContent = game.paused ? 'Resume' : 'Pause';
     pauseBtn.setAttribute('aria-pressed', String(game.paused));
@@ -201,6 +222,7 @@
     elapsed = 0; crashT = -1;
     particles = []; popups = [];
     resetGoalCtx();
+    runStartBest = loadBest();
     statusEl.textContent = '';
     updateBestUI();
     syncControls();
@@ -260,10 +282,10 @@
   pauseBtn.addEventListener('click', () => { togglePause(); canvas.focus(); });
   wrapBtn.addEventListener('click', () => {
     if (uiState === 'over') newGame();
-    if (game.toggleWrap()) {
-      store('snake.wrap', game.wrapWalls ? '1' : '0');
-      updateBestUI();
-      toast(game.wrapWalls ? 'Wrap walls: pass through edges' : 'Classic walls: edges are deadly');
+    if (game.nextMode()) {
+      store('snake.mode', game.mode);
+      newGame(); // fresh run state for the new mode
+      toast(`${modeName()}: ${MODE_INFO[game.mode]}`);
     }
     syncControls();
     canvas.focus();
@@ -347,18 +369,39 @@
   }
 
   // ---- Game events
-  game.on('score', s => { scoreEl.textContent = String(s); goalCtx.score = s; if (s) bump(scoreEl); tryUnlock(); });
-  game.on('length', n => { lengthEl.textContent = String(n); goalCtx.length = Math.max(goalCtx.length, n); });
-  game.on('speed', m => speedEl.textContent = `${m.toFixed(1)}x`);
-  game.on('eat', (e) => {
-    const cx = e.x * TILE + TILE / 2, cy = e.y * TILE + TILE / 2;
-    spawnBurst(cx, cy);
-    popups.push({ x: cx, y: cy, t: 0, text: '+10' });
-    beep(660, 0.06, 'square');
-    goalCtx.eats += 1;
-    if (game.wrapWalls) goalCtx.wrapBite = true;
+  game.on('score', s => {
+    scoreEl.textContent = String(s); goalCtx.score = s;
+    if (s) bump(scoreEl);
+    // Save best live so a closed tab or Zen session never loses it.
+    if (s > loadBest()) { saveBest(s); updateBestUI(); }
     tryUnlock();
   });
+  game.on('length', n => { lengthEl.textContent = String(n); goalCtx.length = Math.max(goalCtx.length, n); tryUnlock(); });
+  game.on('speed', m => speedEl.textContent = `${m.toFixed(1)}x`);
+  game.on('combo', c => {
+    if (!comboEl) return;
+    comboEl.textContent = `x${c}`;
+    comboEl.classList.toggle('hot', c > 1);
+    if (c > 1) bump(comboEl);
+    goalCtx.maxCombo = Math.max(goalCtx.maxCombo, c);
+    tryUnlock();
+  });
+  game.on('eat', (e) => {
+    const cx = e.x * TILE + TILE / 2, cy = e.y * TILE + TILE / 2;
+    spawnBurst(cx, cy, e.bonus);
+    popups.push({ x: cx, y: cy, t: 0, text: e.combo > 1 && !e.bonus ? `+${e.points} ×${e.combo}` : `+${e.points}`, gold: e.bonus });
+    if (e.bonus) {
+      [784, 988, 1175].forEach((f, i) => setTimeout(() => beep(f, 0.08, 'triangle'), i * 70));
+      goalCtx.golden += 1;
+    } else {
+      beep(660 + 90 * (e.combo - 1), 0.06, 'square'); // pitch climbs with the combo
+      goalCtx.eats += 1;
+    }
+    tryUnlock();
+  });
+  game.on('bonus-spawn', () => { toast('Golden fruit! Grab it before it fades'); beep(1320, 0.1, 'triangle'); });
+  game.on('rocks-warn', () => { toast('Rocks incoming!'); beep(150, 0.15, 'triangle'); });
+  game.on('rocks', () => { goalCtx.rocks = game.rocks.filter(r => r.armed).length; tryUnlock(); });
   game.on('pause', () => { statusEl.textContent = 'Paused'; syncControls(); });
   game.on('resume', () => { statusEl.textContent = ''; syncControls(); });
 
@@ -368,12 +411,13 @@
     uiState = 'over';
     crashT = 0;
     const cur = game.score;
-    const best = loadBest();
-    const isBest = cur > best && cur > 0;
-    if (isBest) { saveBest(cur); updateBestUI(); }
+    const best = Math.max(runStartBest, loadBest());
+    const isBest = cur > runStartBest && cur > 0;
     modalTitle.textContent = won ? 'Board Cleared!' : 'Game Over';
-    modalMsg.textContent = won ? 'You filled the entire board. Incredible!'
-      : game.deathReason === 'wall' ? 'You hit the wall.' : 'You bit your own tail.';
+    const REASONS = { wall: 'You hit the wall.', self: 'You bit your own tail.', rock: 'You crashed into a rock.' };
+    modalMsg.textContent = won ? 'You filled the entire board. Incredible!' : (REASONS[game.deathReason] || 'Crashed!');
+    $('ms-combo').textContent = `x${game.maxCombo}`;
+    $('ms-combo').parentElement.classList.toggle('hidden', !game.rules.combo);
     modalBadge.classList.toggle('hidden', !isBest);
     $('ms-score').textContent = String(cur);
     $('ms-best-label').textContent = `Best · ${modeName()}`;
@@ -392,14 +436,16 @@
   game.on('win', () => { beep(880, 0.2, 'triangle'); endRun(true); });
 
   // ---- Effects
-  function spawnBurst(x, y){
+  function spawnBurst(x, y, gold){
     if (reduceMotion) return;
     const P = PALETTES[curTheme()];
-    for (let i = 0; i < 12; i++){
-      const a = (i / 12) * Math.PI * 2 + Math.random() * 0.4;
-      const v = 40 + Math.random() * 70;
+    const count = gold ? 20 : 12;
+    for (let i = 0; i < count; i++){
+      const a = (i / count) * Math.PI * 2 + Math.random() * 0.4;
+      const v = (gold ? 60 : 40) + Math.random() * 70;
       const life = 0.35 + Math.random() * 0.25;
-      particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life, max: life, color: i % 3 ? P.food : P.leaf });
+      const color = gold ? (i % 2 ? P.gold : P.goldHi) : (i % 3 ? P.food : P.leaf);
+      particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life, max: life, color });
     }
   }
   function updateEffects(dt){
@@ -479,7 +525,9 @@
       for (let x = (y % 2); x < game.cols; x += 2)
         ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
 
+    drawRocks(P);
     drawFood(P);
+    drawBonus(P);
     drawSnake(P);
     drawEffects(P);
     drawWalls(P);
@@ -500,7 +548,8 @@
       drawOverlay(P, 'Snake', [
         isTouch ? 'Tap to start' : 'Press any arrow key to start',
         isTouch ? 'Swipe the board or use the pad' : 'Arrows / WASD steer · Space pauses',
-        `Walls: ${game.wrapWalls ? 'Wrap (edges loop around)' : 'Classic (edges are deadly)'}`,
+        `Mode: ${modeName()}`,
+        MODE_INFO[game.mode],
       ]);
     } else if (uiState === 'countdown') {
       drawOverlay(P, String(Math.max(1, Math.ceil(countdownT / COUNT_STEP))), [game.started ? 'Resuming…' : 'Get ready…']);
@@ -537,6 +586,76 @@
     ctx.beginPath(); ctx.moveTo(c.x, c.y - r + 1); ctx.lineTo(c.x + 1, c.y - r - 3); ctx.stroke();
     ctx.fillStyle = P.leaf;
     ctx.beginPath(); ctx.ellipse(c.x + 3.5, c.y - r - 1.5, 3, 1.6, -0.5, 0, Math.PI * 2); ctx.fill();
+
+    // Combo timer ring: how long you have to keep the streak going.
+    if (game.rules.combo && game.started && game.alive) {
+      const left = game.comboLeft;
+      const R = TILE * 0.68;
+      ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      ctx.strokeStyle = P.ringBg;
+      ctx.beginPath(); ctx.arc(c.x, c.y, R, 0, Math.PI * 2); ctx.stroke();
+      if (left > 0) {
+        ctx.strokeStyle = P.ring;
+        ctx.beginPath(); ctx.arc(c.x, c.y, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left); ctx.stroke();
+      }
+    }
+  }
+
+  function drawBonus(P){
+    const b = game.bonus;
+    if (!b) return;
+    const left = b.expires - game.time;
+    // Blink during the last 2 seconds as a warning.
+    if (left < 2 && !reduceMotion && Math.floor(clock * 8) % 2) return;
+    const c = center(b);
+    const r = TILE * 0.42 * (reduceMotion ? 1 : 1 + Math.sin(clock * 7) * 0.06);
+    ctx.save();
+    if (P.glow) { ctx.shadowColor = P.gold; ctx.shadowBlur = P.glow * 1.6 * scale; }
+    // Five-point star
+    ctx.fillStyle = P.gold;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++){
+      const a = -Math.PI / 2 + i * Math.PI / 5 + (reduceMotion ? 0 : clock * 0.8);
+      const rr = i % 2 ? r * 0.48 : r * 1.1;
+      ctx.lineTo(c.x + Math.cos(a) * rr, c.y + Math.sin(a) * rr);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = P.goldHi;
+    ctx.beginPath(); ctx.arc(c.x - r * 0.15, c.y - r * 0.2, r * 0.2, 0, Math.PI * 2); ctx.fill();
+    // Lifetime ring
+    ctx.strokeStyle = P.gold; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(c.x, c.y, TILE * 0.7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, left / b.life)); ctx.stroke();
+  }
+
+  function drawRocks(P){
+    for (const rk of game.rocks){
+      const x = rk.x * TILE, y = rk.y * TILE;
+      if (!rk.armed) {
+        // Warning: pulsing dashed outline where a rock is about to land.
+        const a = reduceMotion ? 0.8 : 0.45 + 0.45 * Math.abs(Math.sin(clock * 6));
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.strokeStyle = P.rockWarn; ctx.lineWidth = 1.5; ctx.setLineDash([3, 2]);
+        ctx.strokeRect(x + 2, y + 2, TILE - 4, TILE - 4);
+        ctx.restore();
+        continue;
+      }
+      // Solid rock: lumpy rounded stone with a highlight.
+      ctx.fillStyle = P.rock;
+      ctx.beginPath();
+      ctx.moveTo(x + 3, y + TILE - 2);
+      ctx.lineTo(x + 1.5, y + 7);
+      ctx.lineTo(x + 5, y + 2.5);
+      ctx.lineTo(x + 11, y + 2);
+      ctx.lineTo(x + TILE - 1.5, y + 7);
+      ctx.lineTo(x + TILE - 2.5, y + TILE - 2);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = P.rockHi;
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath(); ctx.moveTo(x + 5, y + 4); ctx.lineTo(x + 10, y + 3.5); ctx.lineTo(x + 7, y + 7); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   }
 
   function drawSnake(P){
@@ -591,7 +710,7 @@
     for (const p of popups){
       const k = p.t / 0.7;
       ctx.globalAlpha = 1 - k;
-      ctx.fillStyle = P.pop;
+      ctx.fillStyle = p.gold ? P.gold : P.pop;
       ctx.fillText(p.text, p.x, p.y - (reduceMotion ? 10 : 8 + k * 16));
     }
     ctx.globalAlpha = 1;

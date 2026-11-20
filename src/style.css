@@ -543,3 +543,5 @@ body.snake-page { height: auto; min-height: 100%; }
 .snake-goal-list .name { font-weight: 600; }
 .snake-goal-list .desc { font-size: 13px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .snake-val.bump { animation: none; } }
+.snake-val.hot { color: var(--accent); }
+.snake-stats { grid-template-columns: repeat(3, 1fr); }
