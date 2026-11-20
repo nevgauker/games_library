@@ -120,17 +120,18 @@
   }
 
   class Car{
-    constructor({x,y,a,color,isPlayer=false,ai=false}){
+    constructor({x,y,a,color,name,isPlayer=false,ai=false}){
       this.x=x; this.y=y; this.a=a;
       this.speed=0;         // speed along the heading
       this.vx=0; this.vy=0; // actual velocity (the player's can slide sideways)
       this.skid=0;          // 0..1 how hard the tyres are sliding (for skid marks)
-      this.color=color; this.isPlayer=isPlayer; this.ai=ai;
+      this.color=color; this.name=name; this.isPlayer=isPlayer; this.ai=ai;
       this.idx=0;           // nearest centerline sample
       this.dist=0;          // distance driven along the road since the start line (negative on the grid)
       this.offset=0;        // distance from the centerline
       this.offRoad=false; this.wrongWay=0;
       this.lap=1; this.finished=false; this.time=0;
+      this.lapStart=0; this.lapTimes=[];
       this.laneOff=0; this.laneTarget=0; this.laneTimer=0; // AI wander
     }
   }
@@ -157,9 +158,9 @@
         const [px,py] = R.pts[i], [tx,ty] = R.tan[i];
         return { x: px - ty*side, y: py + tx*side, a: Math.atan2(ty, tx) };
       };
-      const colors = ['#f43f5e','#60a5fa','#f59e0b'];
-      this.cars = colors.map((color,i) => new Car({ ...place(slots[i]), color, ai:true }));
-      this.player = new Car({ ...place(slots[3]), color:'#34d399', isPlayer:true });
+      const rivals = [ ['Red','#f43f5e'], ['Blue','#60a5fa'], ['Amber','#f59e0b'] ];
+      this.cars = rivals.map(([name,color],i) => new Car({ ...place(slots[i]), name, color, ai:true }));
+      this.player = new Car({ ...place(slots[3]), name:'You', color:'#34d399', isPlayer:true });
       this.cars.push(this.player);
       for (const c of this.cars){
         const hit = nearest(R, c.x, c.y, 0, null);
@@ -173,6 +174,8 @@
       this.clock = 0;           // seconds since GO
       this.statusUntil = 0;     // clock time a transient status message clears
       this.finishedOrder = [];
+      this.waiting = true;      // on the start screen until start() is called
+      this.paused = false;
       this.emit('lap', { lap: 1, total: LAPS });
       this.emit('time', 0);
       this.emit('pos', this.placeOf(this.player));
@@ -226,7 +229,10 @@
 
       const lapsDone = Math.floor(c.dist / R.L);
       if (lapsDone >= c.lap){
+        const lapTime = c.time - c.lapStart;
+        c.lapStart = c.time; c.lapTimes.push(lapTime);
         c.lap = lapsDone + 1;
+        if (c.isPlayer) this.emit('lapTime', { lap: c.lap - 1, time: lapTime });
         if (c.lap > LAPS) this.finish(c);
         else if (c.isPlayer) this.emit('lap', { lap: c.lap, total: LAPS });
       }
@@ -356,12 +362,20 @@
       if (car.isPlayer) this.emit('finish', { pos: this.placeOf(car), time: car.time });
     }
 
+    start(){ if (this.waiting){ this.waiting = false; this.emit('start'); } }
+    setPaused(on){
+      if (this.waiting || this.player.finished) on = false;
+      if (on !== this.paused){ this.paused = on; this.emit('paused', on); }
+    }
+
     step(dt){
+      if (this.waiting || this.paused) return;
       if (this.countdown > 0){
         this.countdown -= dt;
         const n = Math.max(0, Math.ceil(this.countdown));
         if (n !== this.lastCount){
           this.lastCount = n;
+          this.emit('tick', n);
           if (n > 0) this.emit('status', String(n)); else this.flash('GO!', 1);
         }
       } else {
