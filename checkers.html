@@ -6,7 +6,7 @@
     <title>Checkers</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
-  <body>
+  <body class="checkers-page">
     <header class="topbar">
       <h1>Checkers</h1>
       <div class="controls">
@@ -17,27 +17,68 @@
             <option value="computer">Computer</option>
           </select>
         </label>
-        <span id="ai-level-badge" title="AI difficulty">AI Lv: <b id="ai-level">1</b></span>
+        <span id="ai-controls" class="ai-controls hidden">
+          <label>
+            You:
+            <select id="side-select" aria-label="Your side">
+              <option value="1">Red (moves first)</option>
+              <option value="2">Black</option>
+            </select>
+          </label>
+          <label>
+            AI:
+            <select id="ai-level-select" aria-label="AI difficulty">
+              <option value="1">Lv 1 · Beginner</option>
+              <option value="2">Lv 2 · Casual</option>
+              <option value="3">Lv 3 · Club</option>
+              <option value="4">Lv 4 · Strong</option>
+              <option value="5">Lv 5 · Expert</option>
+            </select>
+          </label>
+          <label title="Raise the level after you win, lower it after you lose">
+            <input id="ai-adaptive" type="checkbox" checked /> Adaptive
+          </label>
+        </span>
         <label style="display:none" id="vol-label">Vol:
           <input id="volume-range" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume" />
         </label>
         <button id="sound-btn" type="button" aria-pressed="true" aria-label="Toggle sound">Sound</button>
         <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="undo-btn" type="button" title="Undo (Ctrl+Z)" disabled>Undo</button>
         <button id="restart-btn" type="button">Restart</button>
       </div>
     </header>
 
     <main>
-      <section class="hud">
-        <div>Turn: <span id="turn">Red</span></div>
-        <div id="status"></div>
+      <section class="hud checkers-hud">
+        <div class="ck-stat">
+          <span class="ck-label">Turn</span>
+          <span class="ck-val"><i id="turn-dot" class="ck-dot red" aria-hidden="true"></i><span id="turn">Red</span></span>
+        </div>
+        <div class="ck-stat">
+          <span class="ck-label" id="red-label">Red</span>
+          <span class="ck-val"><span id="red-count">12</span><small id="red-kings"></small></span>
+        </div>
+        <div class="ck-stat">
+          <span class="ck-label" id="black-label">Black</span>
+          <span class="ck-val"><span id="black-count">12</span><small id="black-kings"></small></span>
+        </div>
+        <div class="ck-stat">
+          <span class="ck-label">Move</span>
+          <span class="ck-val" id="move-num">1</span>
+        </div>
+        <div id="status" aria-live="polite"></div>
       </section>
+      <div id="over-bar" class="over-bar hidden" role="status">
+        <span id="over-text">Game over</span>
+        <button id="over-restart" type="button" class="primary">New game</button>
+      </div>
       <section id="board" class="board checkerboard" aria-label="Checkers board"></section>
     </main>
 
     <footer class="footer">
       <small>
-        Two-player checkers. Simple rules. ·
+        Classic checkers: forced captures, multi-jumps, kings. Play a friend or the computer. ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
@@ -50,13 +91,14 @@
         <h2 id="modal-title">Victory</h2>
         <p id="modal-message">Player wins!</p>
         <div class="modal-actions">
-          <button id="modal-restart" type="button">Restart</button>
+          <button id="modal-restart" type="button" class="primary">Restart</button>
           <button id="modal-close" type="button">Close</button>
         </div>
       </div>
     </div>
 
     <script src="src/checkers.js"></script>
+    <script src="src/checkers_ai.js"></script>
     <script src="src/checkers_ui.js"></script>
   </body>
   </html>

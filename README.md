@@ -69,7 +69,8 @@ Project Structure
 - `src/style.css` – Minimal styling and card flip effect
 - `src/game.js` – Core game engine (state, shuffling, moves, events)
 - `src/main.js` – DOM rendering, event wiring, HUD, and interactions
-- `src/checkers.js` – Checkers core (board, turn, move validation)
+- `src/checkers.js` – Checkers core (rules incl. multi-jumps, draw rule, undo)
+- `src/checkers_ai.js` – Checkers AI (alpha-beta search, 5 levels)
 - `src/checkers_ui.js` – Checkers UI rendering and interactions
 - `src/snake.js` – Snake engine (grid, snake movement, food, collisions)
 - `src/snake_ui.js` – Snake canvas rendering and input wiring
