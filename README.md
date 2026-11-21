@@ -61,7 +61,7 @@ Project Structure
 - `checkers.html` – Checkers game page (standalone)
 - `snake.html` – Snake game page (standalone)
 - `packdash.html` – Pack & Dash! office escape (standalone)
-- `race.html` – Micro Racer (3 tracks × 3 AI levels)
+- `race.html` – Micro Racer (4 tracks × 3 AI levels, time trial with best-lap ghost)
 - `utopia.html` – Tiny Utopia cozy idle sandbox
  - `pacman.html` – Pac-Man retro maze chase
 - `volfied.html` - Volfied-inspired territory capture challenge
@@ -75,7 +75,7 @@ Project Structure
 - `src/snake_ui.js` – Snake canvas rendering and input wiring
 - `src/packdash.js` – Pack & Dash! engine (timer, items, boss, coworkers)
 - `src/packdash_ui.js` – Pack & Dash! canvas rendering and interactions
-- `src/race.js` – Micro Racer engine (tracks, cars, AI, laps)
+- `src/race.js` – Micro Racer engine (road splines, drift physics, AI, laps, boost pads, ghost recording)
 - `src/race_ui.js` – Micro Racer canvas rendering and controls
 - `src/utopia.js` – Tiny Utopia ecosystem engine
 - `src/utopia_ui.js` – Tiny Utopia UI, island rendering, ambience
