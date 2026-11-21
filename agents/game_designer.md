@@ -11,7 +11,7 @@ Design Pillars
 
 Games Overview
 - Memory (Classic): Match pairs; track time and moves; escalate board sizes. Ideal for quick sessions.
-- Checkers (Classic + AI): Local two‑player or adaptive AI (Lv 1–5). Forced capture, kinging, stalemate detection.
+- Checkers (Classic + AI): Local two‑player or AI (Lv 1–5, manual or adaptive, play either side). Forced capture, multi-jumps, kinging, no-moves win, 40-move draw rule.
 - Tiny Utopia (Experimental): Idle sandbox; nudge plants/animals/water toward “Harmony.” Ambient audio and trends.
 - Backspace (Experimental): Rewind to spawn ghosts that retrace paths; use them to hold switches and open doors.
 
@@ -28,7 +28,7 @@ UX Guidelines
 
 Balancing & Progression
 - Memory: default 4×4; add 6×6. Consider timed modes or streak bonuses later.
-- Checkers: start with Lv 1 AI; auto-tune difficulty post-match (±1). Offer manual override in future.
+- Checkers: start with Lv 1 AI; auto-tune difficulty post-match (±1) when Adaptive is on; manual level select otherwise.
 - Tiny Utopia: keep dynamics gentle; harmony > 0.8 should feel “Serene.” Add goals (“Maintain 70%+ for 60s”).
 - Backspace: small handcrafted levels; each introduces a concept. Keep solutions 1–3 clever steps.
 
@@ -39,7 +39,7 @@ Content Guidelines
 
 Future Ideas
 - Memory: daily challenge seed; combos for quick consecutive matches.
-- Checkers: multi-jump sequences, openings explorer, timed mode.
+- Checkers: openings explorer, timed mode.
 - Tiny Utopia: events (rainy/dry seasons), visitors, artifacts that bend rules.
 - Backspace: one‑screen levels, level select, in‑browser editor (text grid + tileset legend).
 
