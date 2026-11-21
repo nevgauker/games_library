@@ -862,3 +862,47 @@ body.race-page { height: auto; min-height: 100%; }
   .race-hud #status { flex-basis: 100%; }
 }
 .snake-page .modal .modal-box { max-height: 90vh; max-height: 90svh; overflow-y: auto; }
+
+/* Volfied */
+.volfied-page .volfied-hud { flex-wrap: wrap; row-gap: 4px; align-items: center; }
+.volfied-page .retro-wrap { padding: 8px 0 12px 0; }
+.volfied-page .retro-screen {
+  /* 16:10 field sized to fit the viewport so the HUD stays visible */
+  width: min(92vw, 960px, max(300px, calc((100vh - 190px) * 1.6)));
+  width: min(92vw, 960px, max(300px, calc((100svh - 190px) * 1.6)));
+  touch-action: none;
+}
+.vf-capture { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.vf-progress {
+  position: relative; display: inline-block; width: 110px; height: 8px;
+  border-radius: 999px; background: var(--card); overflow: visible;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.vf-progress-fill {
+  position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit;
+  background: #22d3ee; transition: width 300ms ease;
+}
+.vf-progress.done .vf-progress-fill { background: #4ade80; }
+.vf-progress-mark {
+  position: absolute; top: -3px; bottom: -3px; width: 2px; left: 75%;
+  background: #fde047; transform: translateX(-1px);
+}
+[data-theme="light"] .vf-progress { border-color: #d1d5db; }
+.volfied-page .life-icon {
+  width: 12px; height: 12px; border-radius: 2px;
+  background: #22d3ee; box-shadow: 0 0 6px rgba(34, 211, 238, 0.6);
+}
+@media (hover: none) and (pointer: coarse) {
+  .volfied-page .dpad { display: grid; }
+  .volfied-page .retro-screen {
+    width: min(92vw, 960px, max(240px, calc((100vh - 400px) * 1.6)));
+    width: min(92vw, 960px, max(240px, calc((100svh - 400px) * 1.6)));
+  }
+}
+@media (max-width: 560px) {
+  .volfied-page .topbar { padding: 8px 12px; }
+  .volfied-page .topbar h1 { font-size: 18px; }
+  .volfied-page .controls button { padding: 5px 8px; font-size: 13px; }
+  .volfied-hud { gap: 6px 16px; }
+  .volfied-hud #status { flex-basis: 100%; margin-left: 0; }
+}

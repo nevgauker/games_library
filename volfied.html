@@ -6,21 +6,29 @@
     <title>Volfied</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
-  <body>
+  <body class="volfied-page">
     <header class="topbar">
       <h1>Volfied</h1>
       <div class="controls">
-        <button id="restart-btn" type="button">Restart (R)</button>
+        <button id="sound-btn" type="button" aria-pressed="false" aria-label="Toggle sound (M)">Sound: Off</button>
+        <button id="pause-btn" type="button" aria-pressed="false">Pause (P)</button>
+        <button id="restart-btn" type="button">Restart</button>
       </div>
     </header>
 
     <main>
-      <section class="hud">
+      <section class="hud volfied-hud">
         <div>Level: <span id="level">1</span>/5</div>
-        <div>Capture: <span id="capture">0</span>%</div>
-        <div>Lives: <span id="lives">3</span></div>
+        <div class="vf-capture">
+          <span>Capture: <span id="capture">0</span>% / <span id="target">75</span>%</span>
+          <span id="progress" class="vf-progress" role="progressbar" aria-label="Capture progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span class="vf-progress-fill"></span>
+            <span class="vf-progress-mark"></span>
+          </span>
+        </div>
+        <div class="lives-wrap">Lives: <span id="lives" class="lives" role="img" aria-label="3 lives"></span></div>
         <div>Score: <span id="score">0</span></div>
-        <div>Tip: Arrows/WASD to cut and claim territory.</div>
+        <div>Best: <span id="best">0</span></div>
         <div id="status" aria-live="polite"></div>
       </section>
       <section class="retro-wrap">
@@ -29,11 +37,17 @@
           <div class="scanlines" aria-hidden="true"></div>
         </div>
       </section>
+      <div id="dpad" class="dpad" aria-label="Direction pad">
+        <button type="button" class="up" data-dir="up" aria-label="Up">▲</button>
+        <button type="button" class="left" data-dir="left" aria-label="Left">◀</button>
+        <button type="button" class="right" data-dir="right" aria-label="Right">▶</button>
+        <button type="button" class="down" data-dir="down" aria-label="Down">▼</button>
+      </div>
     </main>
 
     <footer class="footer">
       <small>
-        Draw lines to split the field while avoiding enemy cores. ·
+        Hold Arrows/WASD to move · cut lines from the edge; the side without the boss becomes yours · enclose minions to destroy them and power-ups to collect them · don't stall mid-line (fuse) · patrollers roam the edges · extra life every 25,000 · P pauses · M sound · R twice restarts. ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
@@ -45,13 +59,14 @@
         <h2 id="modal-title">Volfied</h2>
         <p id="modal-message"></p>
         <div class="modal-actions">
-          <button id="modal-next" class="hidden" type="button">Next Level</button>
-          <button id="modal-restart" type="button">Restart</button>
-          <button id="modal-close" type="button">Close</button>
+          <button id="modal-library" type="button">Library</button>
+          <button id="modal-restart" type="button">Play again</button>
+          <button id="modal-next" class="hidden" type="button">Next level (Enter)</button>
         </div>
       </div>
     </div>
 
+    <script src="src/volfied_art.js"></script>
     <script src="src/volfied.js"></script>
     <script src="src/volfied_ui.js"></script>
   </body>
