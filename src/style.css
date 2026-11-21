@@ -461,6 +461,23 @@ canvas#game { width: min(960px, 92vw); height: auto; border: 1px solid rgba(255,
   mix-blend-mode: overlay;
 }
 
+/* Pac-Man */
+.pacman-page .pacman-hud { flex-wrap: wrap; row-gap: 4px; align-items: center; }
+.pacman-page .retro-screen {
+  /* Fit the square maze inside the viewport so the HUD never scrolls away */
+  width: min(92vw, 720px, max(300px, calc(100vh - 190px)));
+  width: min(92vw, 720px, max(300px, calc(100svh - 190px)));
+}
+.lives { display: inline-flex; gap: 4px; vertical-align: -1px; }
+.life-icon {
+  display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+  background: conic-gradient(#fde047 0 60deg, transparent 60deg 120deg, #fde047 120deg);
+}
+@media (hover: none) and (pointer: coarse) {
+  /* leave room below the maze for the joystick */
+  .pacman-page .retro-wrap { padding-bottom: 150px; }
+}
+
 /* ===== Snake ===== */
 /* Let the page grow instead of squeezing the (overflow:hidden) topbar row on small screens */
 body.snake-page { height: auto; min-height: 100%; }
