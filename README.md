@@ -53,7 +53,7 @@ Overview
 Getting Started
 - Open `index.html` to view the game library.
 - Click “Memory Game” to open `memory.html` and play.
-- In Memory Game: choose board size (4x4 or 6x6), click tiles to match pairs.
+- In Memory Game: pick a mode (Relaxed, Challenge, Time Attack, Daily), a board (3×4 up to 6×6) and a card set, then match pairs. Streaks add points, avoidable mistakes cost points, and each win earns 1–3 stars.
 
 Project Structure
 - `index.html` – Main game library page
@@ -87,20 +87,23 @@ Project Structure
 - `src/digger_ui.js` - Digger canvas rendering and controls
 
 Extending the Game
-- New symbol sets: pass a custom `symbols` array when creating `MemoryGame`.
-- Different sizes: call `game.reset({ size: 6 })` or use the selector.
-- Scoring: subscribe to `move`, `match`, `win` events in `main.js`.
-- Persistence: store and load best time/moves from `localStorage`.
+- New symbol sets: add an entry to `SYMBOL_SETS` in `src/game.js` (18+ symbols) and an option in `memory.html`.
+- Different sizes: add a `RxC` value to `SIZES` in `src/main.js` and the size selector (rows × cols must be even).
+- Modes: add an entry to `MODES` in `src/main.js` (`moveLimit`, `timeLimitMs` or `daily`).
+- Scoring: tune `SCORING` in `src/game.js`; stars come from `starRating()`.
+- Persistence: bests are stored per mode and size under `memory.best2.<mode>.<RxC>` (Daily: `memory.daily.<date>.<RxC>`).
 - Accessibility: enhance ARIA labels and keyboard navigation in `main.js`.
 - Theming: add CSS variables and toggle themes via a button.
 
 Game API (src/game.js)
-- `new MemoryGame({ size, symbols })` — Create a game with square board.
-- `game.on(event, handler)` — Subscribe to: `reset`, `flip`, `move`, `match`, `mismatch`, `update`, `win`.
-- `game.reset({ size, symbols })` — New deck, clears state.
+- `new MemoryGame({ rows, cols, symbols, rng })` — Create a game (`size` still works for square boards; `rng` allows seeded decks via `memorySeededRng(seed)`).
+- `game.on(event, handler)` — Subscribe to: `reset`, `flip`, `move`, `match` (`streak`, `points`), `mismatch` (`mistake`, `penalty`), `update`, `win`.
+- `game.reset({ rows, cols, symbols, rng })` — New deck, clears state.
 - `game.flip(index)` — Flip card at index if allowed.
 - `game.flipBack([i, j])` — Flip back non-matching pair.
-- Public state: `rows`, `cols`, `moves`, `matchedPairs`, `totalPairs`, `isComplete`, `timeElapsedMs`, `deck`.
+- `game.usePeek()` / `game.canPeek()` — One-time peek (costs points, caps rating at 2 stars).
+- `game.end()` / `game.addBonus(points)` — End early (out of moves/time); add bonus points.
+- Public state: `rows`, `cols`, `moves`, `matchedPairs`, `totalPairs`, `mistakes`, `streak`, `bestStreak`, `score`, `stars`, `isComplete`, `isOver`, `timeElapsedMs`, `deck`.
 
 Notes
 - No build step or dependencies; runs offline.

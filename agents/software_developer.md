@@ -52,10 +52,10 @@ Audio
 - Provide a Sound toggle and optional volume when relevant.
 
 Persistence
-- Use namespaced keys (e.g., `memory.best.<size>`, `checkers.ai.level`, `utopia.tutorial.done`).
+- Use namespaced keys (e.g., `memory.best2.<mode>.<RxC>`, `checkers.ai.level`, `utopia.tutorial.done`).
 
 Extensibility Playbook
-- Memory: add symbol sets, board sizes, local bests, keyboard navigation.
+- Memory: done — symbol sets, board sizes, modes, local bests, keyboard navigation. Next: shareable Daily result.
 - Checkers: rules toggles (forced capture, multi-jump), AI depth/heuristics, side selection.
 - Tiny Utopia: goals/achievements, seasonal events, data-driven parameters.
 - Backspace: level format, editor, multiple mechanics (timers, platforms, toggles).
