@@ -1,0 +1,210 @@
+/* ===== Tiny Utopia ===== */
+.utopia-page {
+  --ut-sea-1: #0e3a5c;
+  --ut-sea-2: #0b2440;
+  --ut-card: color-mix(in oklab, var(--panel) 88%, transparent);
+  --ut-line: rgba(255,255,255,0.08);
+  --ut-track: rgba(255,255,255,0.08);
+  --ut-zone: color-mix(in oklab, var(--accent) 35%, transparent);
+  --ut-warn: #f59e0b;
+  --ut-seed: #fbbf24;
+}
+[data-theme="light"] .utopia-page {
+  --ut-sea-1: #7cc4ec;
+  --ut-sea-2: #4a9fd1;
+  --ut-line: #e5e7eb;
+  --ut-track: #e5e7eb;
+  --ut-zone: color-mix(in oklab, var(--accent) 30%, transparent);
+  --ut-warn: #d97706;
+  --ut-seed: #b45309;
+}
+
+.utopia-main { width: min(760px, calc(100vw - 32px)); margin: 0 auto; padding-bottom: 24px; }
+.utopia-page .topbar { flex-wrap: wrap; gap: 8px 12px; }
+.utopia-page .controls { flex-wrap: wrap; gap: 6px; }
+
+.ut-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+
+/* --- HUD --- */
+.ut-hud {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.ut-harmony, .ut-meter, .ut-goal {
+  background: var(--ut-card);
+  border: 1px solid var(--ut-line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.ut-harmony-top, .ut-meter-top, .ut-goal-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+/* id selectors so these beat the library-wide #status rule */
+#status.ut-status { font-weight: 600; font-size: 13px; color: var(--accent); margin: 0; }
+#status.ut-status.tenuous { color: var(--ut-warn); }
+#status.ut-status.unbalanced { color: var(--danger); }
+.ut-harmony-val { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
+.ut-meter-top b { font-size: 16px; font-variant-numeric: tabular-nums; }
+
+.ut-bar { position: relative; height: 8px; border-radius: 99px; background: var(--ut-track); overflow: hidden; margin-top: 6px; }
+.ut-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; background: var(--accent); transition: width .5s ease, background-color .5s ease; }
+.harmony-bar .ut-fill.tenuous { background: var(--ut-warn); }
+.harmony-bar .ut-fill.unbalanced { background: var(--danger); }
+.ut-tick { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--panel); opacity: .8; }
+.ut-zone { position: absolute; top: 0; bottom: 0; background: var(--ut-zone); }
+.ut-marker {
+  position: absolute; top: -1px; bottom: -1px; width: 4px; margin-left: -2px; border-radius: 2px;
+  background: var(--text); transition: left .5s ease;
+}
+.ut-meter.off .ut-marker { background: var(--ut-warn); }
+.ut-meter.off { border-color: color-mix(in oklab, var(--ut-warn) 45%, transparent); }
+
+.ut-extras { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.ut-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px;
+  background: var(--ut-card); border: 1px solid var(--ut-line); font-size: 14px; font-variant-numeric: tabular-nums;
+}
+.seeds-chip b { color: var(--ut-seed); }
+.ut-chip-label { font-size: 12px; color: var(--muted); }
+.seeds-chip.spent { animation: ut-nudge .35s ease; }
+.seeds-chip.short { animation: ut-shake .35s ease; border-color: var(--danger); }
+
+.ut-hint { min-height: 1.4em; margin: 10px 2px 0; font-size: 15px; color: var(--text); text-align: center; }
+.ut-hint.good { color: var(--accent); }
+
+/* --- Island --- */
+.ut-stage { display: grid; justify-items: center; gap: 12px; padding-top: 10px; }
+.island {
+  position: relative;
+  width: min(480px, calc(100vw - 32px));
+  aspect-ratio: 1 / 1;
+  border-radius: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 40%, rgba(255,255,255,0.05) 41%, transparent 46%),
+    radial-gradient(circle at 30% 20%, var(--ut-sea-1), var(--ut-sea-2));
+  border: 1px solid var(--ut-line);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+  isolation: isolate;
+}
+[data-theme="light"] .island { box-shadow: 0 16px 32px rgba(0,0,0,0.12); }
+.island::before {
+  /* gentle surf ring around the shore */
+  content: ""; position: absolute; left: 50%; top: 50%; width: 92%; aspect-ratio: 1; translate: -50% -50%;
+  border-radius: 50%; border: 3px solid rgba(255,255,255,0.18); filter: blur(2px);
+  animation: ut-surf 6s ease-in-out infinite;
+}
+.land {
+  position: absolute; left: 50%; top: 50%; width: 86%; aspect-ratio: 1; translate: -50% -50%;
+  border-radius: 48% 52% 50% 50% / 50% 47% 53% 50%;
+  background:
+    radial-gradient(circle at 40% 35%, rgba(255,255,255,0.12), transparent 60%),
+    var(--land, #4c9a52);
+  box-shadow: inset 0 -8px 18px rgba(0,0,0,0.25), 0 0 0 6px color-mix(in oklab, #e8d6a0 70%, transparent);
+  transition: background-color 2s ease, background 2s ease;
+}
+.pond {
+  position: absolute; left: 36%; top: 40%; translate: -50% -50%;
+  width: calc(4% + 16% * var(--water, .5)); aspect-ratio: 1.3;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #7dd3fc, #2563eb);
+  opacity: calc(.35 + var(--water, .5) * .6);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.3);
+  transition: width 1.5s ease, opacity 1.5s ease;
+}
+
+.sprout, .animal, .tree, .fox {
+  position: absolute; transform: translate(-50%, -100%);
+  transition: opacity .4s ease, scale .4s ease;
+}
+.sprout {
+  width: calc(6px * var(--size, 1)); height: calc(11px * var(--size, 1));
+  border-radius: 6px 6px 1px 1px; background: #6ee7a8; box-shadow: 0 0 0 1px rgba(0,0,0,0.12);
+}
+.island.bloom .sprout:nth-child(3n) { background: #f9a8d4; border-radius: 50%; width: calc(7px * var(--size, 1)); height: calc(7px * var(--size, 1)); }
+.tree { font-size: 26px; filter: drop-shadow(0 2px 1px rgba(0,0,0,0.35)); }
+.animal, .fox {
+  font-size: 18px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4));
+  transition: left 1s ease-in-out, top 1s ease-in-out, opacity .4s ease, scale .4s ease;
+}
+.animal.bird { font-size: 15px; transition-duration: .8s, .8s, .4s, .4s; }
+.fox { font-size: 19px; }
+.animal.flip, .fox.flip { transform: translate(-50%, -100%) scaleX(-1); }
+.entering { animation: ut-pop .45s cubic-bezier(.3,1.6,.6,1) both; }
+.leaving { opacity: 0; scale: .3; }
+
+.float-text {
+  position: absolute; z-index: 200; transform: translate(-50%, -100%); pointer-events: none;
+  font-weight: 700; font-size: 15px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  animation: ut-float 1.1s ease-out forwards;
+}
+
+/* Weather overlays */
+.weather { position: absolute; inset: 0; z-index: 150; pointer-events: none; opacity: 0; transition: opacity .8s ease; }
+.island.raining .weather {
+  opacity: 1;
+  background-image: repeating-linear-gradient(105deg, transparent 0 14px, rgba(200,225,255,0.35) 14px 15px);
+  background-size: 120% 120%;
+  animation: ut-rain .5s linear infinite;
+}
+.island.drought .weather { opacity: 1; background: radial-gradient(circle at 80% 10%, rgba(255,200,80,0.35), transparent 60%); }
+.island.drought .land { filter: saturate(.7) sepia(.25); }
+
+.event-banner {
+  position: absolute; z-index: 220; top: 10px; left: 50%; translate: -50% 0;
+  padding: 5px 12px; border-radius: 99px; white-space: nowrap;
+  background: rgba(15,23,42,0.75); color: #fff; font-size: 13px; font-weight: 600;
+  backdrop-filter: blur(4px);
+}
+.paused-overlay {
+  position: absolute; inset: 0; z-index: 250; display: grid; place-items: center;
+  background: rgba(15,23,42,0.45); color: #fff; font-size: 22px; font-weight: 700; letter-spacing: .1em;
+}
+
+/* --- Actions --- */
+.utopia-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.ut-action { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 12px; min-width: 112px; }
+.ut-act-name { font-size: 14px; }
+.ut-cost { font-size: 12px; color: var(--ut-seed); font-weight: 600; }
+.ut-action.unaffordable { opacity: .55; }
+.ut-action.unaffordable:hover { color: var(--text); border-color: inherit; }
+.ut-action.unlocked { animation: ut-glow 1.6s ease 2; }
+
+/* --- Goal --- */
+.ut-goal { width: min(480px, calc(100vw - 32px)); box-sizing: border-box; }
+.ut-goal-text { font-size: 14px; margin-top: 2px; }
+.ut-goal-detail { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.ut-goal.done .ut-fill { background: var(--ut-seed); }
+
+/* --- Toasts --- */
+.ut-toasts { position: fixed; left: 50%; bottom: 18px; translate: -50% 0; z-index: 900; display: grid; gap: 8px; justify-items: center; pointer-events: none; }
+.ut-toast {
+  padding: 8px 14px; border-radius: 10px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--ut-line); box-shadow: 0 8px 20px rgba(0,0,0,0.3); font-size: 14px;
+  animation: ut-toast-in .3s ease both; max-width: calc(100vw - 32px);
+}
+.ut-toast.out { animation: ut-toast-out .4s ease forwards; }
+
+@keyframes ut-pop { from { scale: 0; opacity: 0; } to { scale: 1; opacity: 1; } }
+@keyframes ut-float { from { opacity: 1; translate: 0 0; } to { opacity: 0; translate: 0 -36px; } }
+@keyframes ut-surf { 0%,100% { scale: 1; opacity: .7; } 50% { scale: 1.02; opacity: 1; } }
+@keyframes ut-rain { from { background-position: 0 0; } to { background-position: -8px 30px; } }
+@keyframes ut-nudge { 50% { scale: 1.08; } }
+@keyframes ut-shake { 25% { translate: -3px 0; } 75% { translate: 3px 0; } }
+@keyframes ut-glow { 50% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--ut-seed) 45%, transparent); } }
+@keyframes ut-toast-in { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
+@keyframes ut-toast-out { to { opacity: 0; translate: 0 8px; } }
+
+@media (max-width: 620px) {
+  .ut-hud { grid-template-columns: 1fr 1fr 1fr; }
+  .ut-harmony { grid-column: 1 / -1; }
+  .ut-meter { padding: 6px 8px; }
+  .ut-action { min-width: 0; flex: 1 1 30%; padding: 6px 6px; }
+  .ut-act-name { font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sprout, .animal, .tree, .fox, .ut-fill, .ut-marker, .land, .pond { transition: none; }
+  .entering, .float-text, .island::before, .island.raining .weather, .seeds-chip.spent, .seeds-chip.short, .ut-action.unlocked { animation: none; }
+  .float-text { opacity: 0; }
+}

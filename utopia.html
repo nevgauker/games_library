@@ -5,57 +5,105 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tiny Utopia</title>
     <link rel="stylesheet" href="src/style.css" />
+    <link rel="stylesheet" href="src/utopia.css" />
   </head>
-  <body>
+  <body class="utopia-page">
     <header class="topbar">
       <h1>Tiny Utopia</h1>
       <div class="controls">
+        <button id="pause-btn" type="button" aria-pressed="false" title="Pause (P)">Pause</button>
+        <button id="help-btn" type="button">How to play</button>
         <button id="sound-btn" type="button" aria-pressed="true" aria-label="Toggle sound">Sound</button>
         <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
-        <button id="restart-btn" type="button">Restart</button>
+        <button id="restart-btn" type="button">New island</button>
       </div>
     </header>
 
-    <main>
-      <section class="hud">
-        <div>Plants: <span id="plants">0</span> <span id="plants-tr" class="trend">•</span></div>
-        <div>Animals: <span id="animals">0</span> <span id="animals-tr" class="trend">•</span></div>
-        <div>Water: <span id="water">0</span> <span id="water-tr" class="trend">•</span></div>
-        <div>Harmony: <span id="harmony">0%</span> <span id="harmony-tr" class="trend">•</span></div>
-        <div id="status"></div>
-      </section>
+    <main class="utopia-main">
+      <section class="ut-hud" aria-label="Island status">
+        <div class="ut-harmony">
+          <div class="ut-harmony-top">
+            <span class="ut-label">Harmony</span>
+            <span id="status" class="ut-status">Balanced</span>
+          </div>
+          <div class="ut-harmony-val"><span id="harmony">0%</span> <span id="harmony-tr" class="trend" aria-hidden="true">•</span></div>
+          <div class="ut-bar harmony-bar" aria-hidden="true">
+            <div class="ut-fill" id="harmony-fill"></div>
+            <i class="ut-tick" style="left:60%"></i><i class="ut-tick" style="left:80%"></i>
+          </div>
+        </div>
 
-      <section class="utopia">
-        <div id="island" class="island" aria-label="Floating island" role="img"></div>
-        <div class="utopia-controls">
-          <button id="btn-plant" type="button">Grow Plant 🌱</button>
-          <button id="btn-animal" type="button">Spawn Animal 🐑</button>
-          <button id="btn-water" type="button">Add Water 💧</button>
+        <div class="ut-meter" id="meter-plants">
+          <div class="ut-meter-top"><span class="ut-label">🌱 Plants</span><span><b id="plants">0</b> <span id="plants-tr" class="trend" aria-hidden="true">•</span></span></div>
+          <div class="ut-bar" aria-hidden="true"><div class="ut-zone"></div><div class="ut-marker"></div></div>
+        </div>
+        <div class="ut-meter" id="meter-animals">
+          <div class="ut-meter-top"><span class="ut-label">🐑 Animals</span><span><b id="animals">0</b> <span id="animals-tr" class="trend" aria-hidden="true">•</span></span></div>
+          <div class="ut-bar" aria-hidden="true"><div class="ut-zone"></div><div class="ut-marker"></div></div>
+        </div>
+        <div class="ut-meter" id="meter-water">
+          <div class="ut-meter-top"><span class="ut-label">💧 Water</span><span><b id="water">0</b> <span id="water-tr" class="trend" aria-hidden="true">•</span></span></div>
+          <div class="ut-bar" aria-hidden="true"><div class="ut-zone"></div><div class="ut-marker"></div></div>
+        </div>
+
+        <div class="ut-extras">
+          <div class="ut-chip seeds-chip" title="Seeds: earned over time, faster when Harmony is high">✨ <b id="seeds">0</b> <span class="ut-chip-label">Seeds</span></div>
+          <div class="ut-chip hidden" id="trees-chip" title="Trees steady the water level">🌳 <b id="trees">0</b></div>
+          <div class="ut-chip hidden" id="foxes-chip" title="Foxes hunt animals">🦊 <b id="foxes">0</b></div>
         </div>
       </section>
+
+      <p id="hint" class="ut-hint" role="status" aria-live="polite"></p>
+
+      <section class="ut-stage">
+        <div id="island" class="island" role="img" aria-label="A small island">
+          <div class="land"></div>
+          <div class="pond"></div>
+          <div class="weather" aria-hidden="true"></div>
+          <div id="event-banner" class="event-banner hidden" aria-hidden="true"></div>
+          <div id="paused-overlay" class="paused-overlay hidden">Paused</div>
+        </div>
+
+        <div class="utopia-controls" role="group" aria-label="Actions">
+          <button class="ut-action" data-kind="plant" type="button" aria-keyshortcuts="1"><span class="ut-act-name">Grow Plants 🌱</span><span class="ut-cost">3 ✨</span></button>
+          <button class="ut-action" data-kind="animal" type="button" aria-keyshortcuts="2"><span class="ut-act-name">Spawn Animal 🐑</span><span class="ut-cost">5 ✨</span></button>
+          <button class="ut-action" data-kind="water" type="button" aria-keyshortcuts="3"><span class="ut-act-name">Add Water 💧</span><span class="ut-cost">2 ✨</span></button>
+          <button class="ut-action hidden" data-kind="tree" type="button" aria-keyshortcuts="4"><span class="ut-act-name">Plant Tree 🌳</span><span class="ut-cost">8 ✨</span></button>
+          <button class="ut-action hidden" data-kind="fox" type="button" aria-keyshortcuts="5"><span class="ut-act-name">Invite Fox 🦊</span><span class="ut-cost">10 ✨</span></button>
+        </div>
+
+        <div class="ut-goal" id="goal">
+          <div class="ut-goal-top"><span class="ut-label" id="goal-label">Goal 1 / 6</span><span id="goal-detail" class="ut-goal-detail"></span></div>
+          <div id="goal-text" class="ut-goal-text"></div>
+          <div class="ut-bar" aria-hidden="true"><div class="ut-fill" id="goal-fill"></div></div>
+        </div>
+      </section>
+
+      <div id="toasts" class="ut-toasts" role="status" aria-live="polite"></div>
     </main>
 
     <footer class="footer">
       <small>
-        Cozy idle sandbox — find balance. ·
+        Cozy idle sandbox — find balance. Keys: 1–5 actions, P pause ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
       </small>
     </footer>
 
-    <script src="src/utopia.js"></script>
-    <script src="src/utopia_ui.js"></script>
-  </body>
-  </html>
-    <!-- Tutorial modal -->
+    <!-- Tutorial / message modal -->
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-box">
         <h2 id="modal-title">Welcome to Tiny Utopia</h2>
-        <p id="modal-message">Tap buttons to grow plants, spawn animals, and add water. Keep the island in balance!</p>
+        <p id="modal-message"></p>
         <div class="modal-actions">
           <button id="modal-next" type="button">Next</button>
           <button id="modal-done" type="button">Got it</button>
         </div>
       </div>
     </div>
+
+    <script src="src/utopia.js"></script>
+    <script src="src/utopia_ui.js"></script>
+  </body>
+</html>
