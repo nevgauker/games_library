@@ -84,6 +84,7 @@ Project Structure
  - `src/pacman_ui.js` – Pac-Man canvas rendering and input wiring
 - `src/volfied.js` - Volfied game core (territory capture, enemy collision, scoring)
 - `src/volfied_ui.js` - Volfied canvas rendering and controls
+- `src/volfied_art.js` - Volfied procedural level pictures revealed by captured land
 - `src/digger.js` - Digger core (digging, bags, monsters, pump)
 - `src/digger_ui.js` - Digger canvas rendering and controls
 
