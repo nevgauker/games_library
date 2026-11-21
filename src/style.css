@@ -275,6 +275,124 @@ main { width: min(1100px, 92vw); margin: 0 auto; }
   .face { transition: none; }
 }
 
+/* ===== Memory page ===== */
+body.memory-page { height: auto; min-height: 100%; }
+.memory-page .topbar { flex-wrap: wrap; gap: 8px 12px; }
+.memory-page .controls { flex-wrap: wrap; gap: 6px 8px; }
+.memory-page .controls label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+.memory-page select:disabled { opacity: 0.5; cursor: not-allowed; }
+.memory-page button.primary { background: var(--primary); border-color: var(--primary); color: #0b1220; font-weight: 600; }
+.memory-page button.primary:hover { filter: brightness(1.1); color: #0b1220; }
+
+/* Board sized to fit the viewport (width and height) for any rows x cols; HUD aligns to it */
+.memory-page main {
+  --avail-h: calc(100vh - 215px);
+  --avail-h: calc(100svh - 215px);
+  --board-w: min(92vw, 680px, max(240px, calc(var(--avail-h) * var(--cols, 4) / var(--rows, 4))));
+}
+.memory-hud { flex-wrap: wrap; align-items: center; gap: 8px 22px; padding-top: 2px; width: var(--board-w); margin: 0 auto; }
+.mem-stat { display: flex; flex-direction: column; line-height: 1.15; min-width: 44px; }
+.mem-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); white-space: nowrap; }
+.mem-val { display: inline-block; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; transform-origin: left center; }
+.mem-val.bump { animation: mem-bump .3s ease-out; }
+@keyframes mem-bump { 40% { transform: scale(1.2); color: var(--accent); } }
+.mem-stat.low .mem-val { color: var(--danger); }
+.memory-subbar { width: var(--board-w); margin: 6px auto 0; display: flex; align-items: center; gap: 10px; min-height: 30px; }
+.mem-peek { margin-left: auto; flex: none; border-radius: 999px; font-size: 13px; padding: 4px 10px; }
+.mem-peek span { color: var(--muted); font-size: 12px; }
+.mem-peek:disabled { opacity: 0.4; cursor: not-allowed; }
+.mem-peek:disabled:hover { border-color: #374151; color: var(--text); }
+.memory-status { flex: 1; min-width: 0; font-weight: 600; color: var(--accent); line-height: 1.25; }
+.memory-page .footer a { color: var(--primary); }
+
+.memory-page .board {
+  --gap: clamp(4px, calc(var(--board-w) / var(--cols, 4) * 0.08), 12px);
+  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+  width: var(--board-w);
+  margin: 8px auto 20px;
+  gap: var(--gap);
+}
+.memory-page .board.dealing .card { animation: mem-deal .35s cubic-bezier(.2,.9,.3,1.2) both; animation-delay: calc(var(--i, 0) * 15ms); }
+.memory-page .card button.tile { display: block; }
+.memory-page .face { font-size: calc(var(--board-w) / var(--cols, 4) * 0.5); }
+
+/* Card back: soft diagonal pattern with a "?" mark */
+.memory-page .front {
+  color: color-mix(in oklab, var(--primary) 75%, transparent);
+  font-weight: 800;
+  font-size: calc(var(--board-w) / var(--cols, 4) * 0.34);
+  background:
+    repeating-linear-gradient(45deg, transparent 0 7px, color-mix(in oklab, var(--primary) 9%, transparent) 7px 14px),
+    linear-gradient(180deg, var(--card), #0b1220);
+  box-shadow: inset 0 0 0 4px color-mix(in oklab, var(--card) 70%, transparent), inset 0 0 0 5px color-mix(in oklab, var(--primary) 25%, transparent), 0 8px 16px rgba(0,0,0,0.25);
+}
+[data-theme="light"] .memory-page .front {
+  background:
+    repeating-linear-gradient(45deg, transparent 0 7px, color-mix(in oklab, var(--primary) 8%, transparent) 7px 14px),
+    linear-gradient(180deg, #ffffff, #eef2ff);
+  box-shadow: inset 0 0 0 4px #ffffff, inset 0 0 0 5px color-mix(in oklab, var(--primary) 25%, transparent), 0 6px 12px rgba(0,0,0,0.08);
+}
+.memory-page .card:hover .front { filter: brightness(1.12); }
+[data-theme="light"] .memory-page .card:hover .front { filter: brightness(0.98); }
+@media (hover: none) { .memory-page .card:hover .front { filter: none; } }
+
+/* Peek: show every unmatched card */
+.memory-page .peeking .front { transform: rotateY(180deg); }
+.memory-page .peeking .back { transform: rotateY(0deg); }
+
+/* Match: pop + glow, then settle into a faded "done" state */
+.memory-page .matched .back {
+  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.15);
+  opacity: 0.55;
+  transition: transform 320ms ease, opacity .5s ease .6s;
+}
+.memory-page .card.just-matched { animation: mem-pop .55s ease-out; }
+.memory-page .card.just-matched .back { box-shadow: 0 0 0 3px var(--accent), 0 0 22px color-mix(in oklab, var(--accent) 60%, transparent); }
+
+/* Mismatch: shake + red tint */
+.memory-page .card.wrong { animation: mem-shake .4s ease-in-out .15s; }
+.memory-page .card.wrong .back {
+  border-color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 18%, var(--panel));
+}
+.memory-page .board.over .card:not(.matched) button.tile { cursor: default; }
+
+@keyframes mem-deal { from { opacity: 0; transform: scale(.6) translateY(8px); } }
+@keyframes mem-pop { 35% { transform: scale(1.1); } 70% { transform: scale(.97); } }
+@keyframes mem-shake { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+
+/* Result modal: stars + stats */
+.memory-result { text-align: center; }
+.memory-result .modal-actions { justify-content: center; flex-wrap: wrap; }
+.mem-badge { color: #f59e0b !important; font-weight: 700; margin: 0 0 4px !important; }
+.mem-stars { font-size: 40px; letter-spacing: 6px; margin: 0 0 6px !important; line-height: 1; }
+.mem-stars span { display: inline-block; animation: mem-star .45s cubic-bezier(.3,1.6,.6,1) both; animation-delay: var(--d, 0ms); }
+.mem-stars .on { color: #f59e0b; text-shadow: 0 0 14px rgba(245, 158, 11, .45); }
+.mem-stars .off { color: color-mix(in oklab, var(--muted) 45%, transparent); }
+@keyframes mem-star { from { transform: scale(0) rotate(-40deg); opacity: 0; } }
+.mem-stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+.mem-stats div { flex: 1 1 28%; background: var(--card); border-radius: 8px; padding: 8px 6px; }
+[data-theme="light"] .mem-stats div { background: #f3f4f6; }
+.mem-stats dt { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.mem-stats dd { margin: 2px 0 0; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .memory-page .board.dealing .card, .memory-page .card.just-matched, .memory-page .card.wrong,
+  .mem-val.bump, .mem-stars span { animation: none; }
+  .memory-page .matched .back { transition: none; }
+}
+
+@media (max-width: 560px) {
+  .memory-page main { --avail-h: calc(100vh - 300px); --avail-h: calc(100svh - 300px); }
+  .memory-page .topbar { padding: 8px 12px; }
+  .memory-page .topbar h1 { font-size: 18px; }
+  .memory-page .controls label { font-size: 0; gap: 0; } /* hide label text, keep the selects */
+  .memory-page .controls button, .memory-page .controls select { padding: 5px 7px; font-size: 13px; }
+  .memory-hud { gap: 6px 14px; }
+  .mem-val { font-size: 17px; }
+}
+
 /* Library layout */
 .library main { width: min(1100px, 92vw); margin: 0 auto; }
 .game-grid {
