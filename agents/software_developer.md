@@ -13,7 +13,7 @@ Project Structure
 - `memory.html` — Memory game UI; logic in `src/game.js`, glue in `src/main.js`.
 - `checkers.html` — Checkers page; core in `src/checkers.js`, UI in `src/checkers_ui.js`.
 - `utopia.html` — Tiny Utopia page; engine in `src/utopia.js`, UI/audio in `src/utopia_ui.js`.
-- `backspace.html` — Backspace platformer; engine in `src/backspace.js`, UI/render in `src/backspace_ui.js`.
+- `backspace.html` — Backspace platformer; levels in `src/backspace_levels.js`, timeline engine in `src/backspace.js` (no DOM; also runs in Node), UI/render/audio in `src/backspace_ui.js`. `npm run check-levels` (tools/check-levels.cjs) searches every level with the real engine: the scripted solution must win within the echo limit and par, and the level must be unbeatable without rewinding.
 - `src/style.css` — Shared styles including themes, layout, components, and per‑game sections.
 - `README.md` — Usage, structure, extension notes.
 
@@ -58,7 +58,7 @@ Extensibility Playbook
 - Memory: done — symbol sets, board sizes, modes, local bests, keyboard navigation. Next: shareable Daily result.
 - Checkers: rules toggles (forced capture, multi-jump), AI depth/heuristics, side selection.
 - Tiny Utopia: goals/achievements, seasonal events, data-driven parameters.
-- Backspace: level format, editor, multiple mechanics (timers, platforms, toggles).
+- Backspace: in-browser level editor; run the checker in CI.
 
 Review Checklist
 - [ ] Page loads from file:// with no console errors.

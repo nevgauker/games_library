@@ -31,7 +31,7 @@
   let raf = 0, lastTime = 0, acc = 0;
   let view = { scale: 1, dpr: 1 };
   let pal = null;
-  let flashAlpha = 0;
+  let flashAlpha = 0, flashColor = '#ffffff';
   let lastTimeText = '';
 
   // Purely visual state; never affects the simulation
@@ -92,7 +92,7 @@
     game.on('echoes', renderPips);
     game.on('win', onWin);
     game.on('rewind', e => {
-      flashAlpha = reducedMotion ? 0.12 : 0.25; sfx.rewind();
+      flashAlpha = reducedMotion ? 0.12 : 0.25; flashColor = '#ffffff'; sfx.rewind();
       statusEl.textContent = `Echo replays your last ${(e.path.length/60).toFixed(1)}s`;
       const s = e.path[0]; burst(s.x, s.y - 10, 14, pal.echo, 2);
     });
@@ -102,6 +102,12 @@
     game.on('undo', () => { sfx.undo(); statusEl.textContent = 'Echo removed'; });
     game.on('jump', () => { fx.squash = -1; sfx.jump(); dust(game.player.x, game.player.y, 5); });
     game.on('land', v => { if (v < 2.5) return; fx.squash = Math.min(1, v / 8); sfx.land(v); dust(game.player.x, game.player.y, Math.round(v)); });
+    game.on('death', d => {
+      sfx.death(); flashAlpha = reducedMotion ? 0.15 : 0.35; flashColor = '#ef4444';
+      burst(d.at.x, d.at.y - 10, 20, pal.player, 2.5);
+      if (!reducedMotion) fx.shake = 5;
+      statusEl.textContent = d.cause === 'laser' ? 'Zapped! Time snapped back a second.' : 'Ouch! Time snapped back a second.';
+    });
     game.on('door-open', () => sfx.door(true));
     game.on('door-close', () => { sfx.door(false); if (!reducedMotion) fx.shake = Math.max(fx.shake, 3); });
   }
@@ -160,10 +166,12 @@
       bg: css('--bg') || '#f3f4f6', field: '#ffffff', wall: '#475569', wallTop: '#64748b', grid: 'rgba(15,23,42,0.05)',
       text: '#111827', muted: '#6b7280', player: '#dc2626', echo: '#7c3aed', goal: '#2563eb', dust: '#94a3b8',
       ch: { a: '#059669', b: '#d97706', c: '#0284c7' }, eye: '#ffffff', pupil: '#111827', tip: 'rgba(255,255,255,0.92)',
+      spike: '#64748b', laser: '#e11d48',
     } : {
       bg: css('--bg') || '#0f172a', field: '#111a2e', wall: '#cbd5e1', wallTop: '#f1f5f9', grid: 'rgba(255,255,255,0.03)',
       text: '#e5e7eb', muted: '#9ca3af', player: '#ef4444', echo: '#a78bfa', goal: '#60a5fa', dust: '#e5e7eb',
       ch: { a: '#34d399', b: '#fbbf24', c: '#38bdf8' }, eye: '#ffffff', pupil: '#111827', tip: 'rgba(15,23,42,0.88)',
+      spike: '#94a3b8', laser: '#fb7185',
     };
   }
 
@@ -220,13 +228,17 @@
         const c = level.grid[y][x];
         const rx = x*TILE, ry = y*TILE;
         if (c === '#') drawWall(level, x, y);
-        else if (C.PLATE[c]) drawPlate(rx, ry, C.PLATE[c]);
+        else if (C.PLATE[c]) drawPlate(rx, ry, C.PLATE[c], C.TIMED[c]);
+        else if (c === '^') drawSpikes(rx, ry);
+        else if (c === '-') drawPlank(rx, ry);
+        else if (C.LASER[c]) drawEmitter(rx, ry, C.LASER[c]);
         else if (C.DOOR[c]) drawDoor(rx, ry, C.DOOR[c]);
         else if (c === 'G') drawGoal(rx, ry);
       }
     }
 
     drawTips();
+    drawBeams(t);
 
     // Echoes, positioned on the timeline
     for (const e of game.echoes) {
@@ -271,7 +283,7 @@
     }
 
     if (flashAlpha > 0.001) {
-      ctx.globalAlpha = flashAlpha; ctx.fillStyle = '#ffffff'; ctx.fillRect(-MARGIN, -MARGIN, view.mapW, view.mapH); ctx.globalAlpha = 1;
+      ctx.globalAlpha = flashAlpha; ctx.fillStyle = flashColor; ctx.fillRect(-MARGIN, -MARGIN, view.mapW, view.mapH); ctx.globalAlpha = 1;
       flashAlpha *= 0.9;
     }
   }
@@ -314,8 +326,22 @@
     if (fill) ctx.fill(); else ctx.stroke();
   }
 
-  function drawPlate(x, y, ch){
+  function drawPlate(x, y, ch, timed){
     const glow = fx.plateGlow[ch], col = pal.ch[ch];
+    if (timed) {
+      // clock face with the remaining linger time
+      const left = game.scrubbing ? 0 : game.timerLeft(ch);
+      const cx = x + TILE/2, cy = y + TILE - 13;
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2); ctx.stroke();
+      if (left > 0) { ctx.fillStyle = col; ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, 6, -Math.PI/2, -Math.PI/2 + Math.PI*2*left); ctx.closePath(); ctx.fill(); }
+      ctx.globalAlpha = 1; ctx.strokeStyle = pal.text; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - 4); ctx.moveTo(cx, cy); ctx.lineTo(cx + 3, cy); ctx.stroke();
+      ctx.fillStyle = col; ctx.globalAlpha = 0.45 + glow * 0.55;
+      roundRect(x+3, y+TILE-5+glow*2, TILE-6, 5-glow*2, 2);
+      ctx.globalAlpha = 1;
+      return;
+    }
     const press = glow * 2;
     ctx.fillStyle = col;
     ctx.globalAlpha = 0.45 + glow * 0.55;
@@ -349,6 +375,49 @@
     ctx.fillStyle = pal.goal; ctx.globalAlpha = 0.22;
     roundRect(x+2-pulse, y+2-pulse, TILE-4+pulse*2, TILE-4+pulse*2, 7);
     ctx.globalAlpha = 1; roundRect(x+7, y+7, TILE-14, TILE-14, 3);
+  }
+
+  function drawSpikes(x, y){
+    ctx.fillStyle = pal.spike;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) { const sx = x + i*6; ctx.moveTo(sx, y + TILE); ctx.lineTo(sx + 3, y + TILE/2 + 1); ctx.lineTo(sx + 6, y + TILE); }
+    ctx.closePath(); ctx.fill();
+  }
+  function drawPlank(x, y){
+    ctx.fillStyle = pal.wall; ctx.fillRect(x, y, TILE, 4);
+    ctx.fillStyle = pal.wallTop; ctx.fillRect(x, y, TILE, 1.5);
+    ctx.globalAlpha = 0.35; ctx.fillStyle = pal.wall;
+    ctx.fillRect(x + 3, y + 4, 2, 4); ctx.fillRect(x + TILE - 5, y + 4, 2, 4);
+    ctx.globalAlpha = 1;
+  }
+  function drawEmitter(x, y, dir){
+    ctx.fillStyle = pal.wall; ctx.fillRect(x - 0.25, y - 0.25, TILE + 0.5, TILE + 0.5);
+    ctx.fillStyle = pal.laser;
+    const mx = dir > 0 ? x + TILE - 6 : x;
+    roundRect(mx, y + TILE/2 - 5, 6, 10, 2);
+  }
+  function drawBeams(t){
+    if (!game.level.lasers.length) return;
+    const power = game.scrubbing ? game.powerAt(t) : game.power;
+    const player = game.scrubbing ? game.history[t] : game.player;
+    const beams = game.beamsAt(t, power, player);
+    const flicker = reducedMotion ? 1 : 0.85 + Math.random() * 0.15;
+    for (const b of beams) {
+      const x0 = Math.min(b.x0, b.x1), w = Math.abs(b.x1 - b.x0);
+      ctx.globalAlpha = 0.18 * flicker; ctx.fillStyle = pal.laser; ctx.fillRect(x0, b.y - 4, w, 8);
+      ctx.globalAlpha = 0.95 * flicker; ctx.fillRect(x0, b.y - 1.5, w, 3);
+      if (b.hit) { ctx.globalAlpha = 0.6 * flicker; ctx.beginPath(); ctx.arc(b.x1, b.y, 4, 0, Math.PI*2); ctx.fill(); }
+    }
+    ctx.globalAlpha = 1;
+    // show idle emitters' aim faintly when the laser is off
+    if (!beams.length) {
+      ctx.strokeStyle = pal.laser; ctx.globalAlpha = 0.15; ctx.setLineDash([2, 6]); ctx.lineWidth = 1;
+      for (const L of game.level.lasers) {
+        const y = L.y*TILE + TILE/2, x0 = L.dir > 0 ? (L.x+1)*TILE : L.x*TILE;
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + L.dir * TILE * 4, y); ctx.stroke();
+      }
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
   }
 
   // In-world tutorial labels (level.tips: [{at:[col,row], text}])
@@ -617,6 +686,7 @@
     tick: frac => tone('sine', 700 - frac * 400, 680 - frac * 400, 0.04, 0.05),
     denied: () => tone('square', 160, 120, 0.12, 0.08),
     undo: () => tone('sine', 400, 700, 0.1, 0.1),
+    death: () => { tone('sawtooth', 400, 80, 0.25, 0.12); noise(500, 0.2, 0.12); },
     win: () => [523, 659, 784, 1046].forEach((f, i) => tone('triangle', f, f, 0.18, 0.12, i * 0.08)),
   };
 
