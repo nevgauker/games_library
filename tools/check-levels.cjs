@@ -3,7 +3,7 @@
 //   1. reachable   - the goal can be reached when every door is forced open
 //   2. needs echo  - the goal can NOT be reached without rewinding (no bypass)
 //   3. solution    - the level's scripted solution wins (echoes simulated for real)
-// Usage: node tools/check-levels.cjs [levelNumber]
+// Usage: node tools/check-levels.cjs [levelNumber] [--strict]   (VERBOSE=1 for timings)
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -30,11 +30,32 @@ function makeGame(i, mutate) {
 
 // Breadth-first search over inputs from the game's current state until `done(game)`.
 // Returns the list of inputs, or null. Echo playback is part of the simulated state.
-function search(game, done, maxFrames = 2400) {
+// Coarse key (default): merges states within ~1px. Paths stay exact because every
+// node keeps its real snapshot, but a pixel-perfect trick could be missed.
+// Pass --strict to use the exact key for the reachability/bypass proofs (slow).
+function coarseKey(g) {
+  const p = g.player;
+  return [Math.round(p.x), Math.round(p.y), Math.round(p.vy * 2), p.onGround ? 1 : 0,
+    Math.min(g.framesSinceGrounded, 7), g.jumpBuffer > 0 ? 1 : 0, g.jumpHeld ? 1 : 0,
+    g.power.a ? 1 : 0, g.power.b ? 1 : 0, g.power.c ? 1 : 0, g.riding || 0, g.timerKey ? g.timerKey() : ''].join();
+}
+// Keys are built here rather than via game.stateKey(): calling into the vm
+// context per state is ~100x slower.
+function fineKey(g) {
+  const p = g.player;
+  return [Math.round(p.x * 2), Math.round(p.y * 2), Math.round(p.vy * 10), p.onGround ? 1 : 0,
+    Math.min(g.framesSinceGrounded, 7), g.jumpBuffer, g.jumpHeld ? 1 : 0,
+    g.power.a ? 1 : 0, g.power.b ? 1 : 0, g.power.c ? 1 : 0, g.riding || 0, g.timerKey ? g.timerKey() : ''].join();
+}
+
+const STRICT = process.argv.includes('--strict');
+const proofKey = STRICT ? fineKey : coarseKey;
+
+function search(game, done, maxFrames = 2400, keyFn = proofKey) {
   const start = game.snapshot();
   const keepHistory = game.history;
   const nodes = [{ s: start, parent: -1, a: null }];
-  const seen = new Set([game.stateKey()]);
+  const seen = new Set([keyFn(game)]);
   let frontier = [0], depth = 0, found = -1;
   outer: while (frontier.length && depth < maxFrames) {
     const next = [];
@@ -44,7 +65,7 @@ function search(game, done, maxFrames = 2400) {
         game.step(a);
         if (done(game)) { nodes.push({ s: null, parent: ni, a }); found = nodes.length - 1; break outer; }
         if (game.dead) continue;
-        const k = game.stateKey();
+        const k = keyFn(game);
         if (seen.has(k)) continue;
         seen.add(k);
         nodes.push({ s: game.snapshot(), parent: ni, a });
@@ -72,11 +93,13 @@ function runSolution(i) {
     if (g.win) break;
     if (step.to) {
       const [tx, ty] = step.to;
-      const r = search(g, gg => gg.win || (gg.player.onGround && feetTile(gg)[0] === tx && feetTile(gg)[1] === ty));
+      const r = search(g, gg => gg.win || (gg.player.onGround && feetTile(gg)[0] === tx && feetTile(gg)[1] === ty), 2400, coarseKey);
       if (!r.inputs) return { ok: false, msg: `cannot reach ${step.to} (step ${log.length + 1})` };
       for (const a of r.inputs) g.step(a);
     } else if (step.wait) {
       for (let k = 0; k < step.wait && !g.win; k++) g.step(IDLE);
+    } else if (step.undo) {
+      g.undoEcho();
     } else if (step.rewind) {
       if (!g.rewind(step.rewind)) return { ok: false, msg: `rewind failed (step ${log.length + 1})` };
     }
@@ -91,9 +114,13 @@ function checkLevel(i) {
   const def = BACKSPACE_LEVELS[i];
   const isDoor = c => /[A-CD]/.test(c);
   const isSwitch = c => /[a-cS1-3]/.test(c);
+  const T0 = Date.now(); const lap = l => process.env.VERBOSE && console.log(`   ${l} ${Date.now() - T0}ms`);
   const open = search(makeGame(i, c => isDoor(c) ? '.' : c), g => g.win);
+  lap('open');
   const solo = search(makeGame(i), g => g.win);
+  lap('solo');
   const sol = runSolution(i);
+  lap('solution');
   const problems = [];
   if (!open.inputs) problems.push('goal unreachable even with all doors open');
   if (solo.inputs) problems.push(`beatable without rewinding (${solo.inputs.length} frames) - mechanic bypass`);
@@ -103,7 +130,8 @@ function checkLevel(i) {
   return { def, open, solo, sol, problems };
 }
 
-const only = process.argv[2] ? Number(process.argv[2]) - 1 : null;
+const numArg = process.argv.slice(2).find(a => /^\d+$/.test(a));
+const only = numArg ? Number(numArg) - 1 : null;
 let failed = 0;
 BACKSPACE_LEVELS.forEach((def, i) => {
   if (only != null && i !== only) return;

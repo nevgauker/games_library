@@ -36,10 +36,16 @@
   function reset(){
     const idx = Number(levelSelect?.value || 0);
     game = new BackspaceGame(idx);
-    ghostsEl.textContent = '0';
-    game.on('ghosts', n => ghostsEl.textContent = String(n));
+    const showEchoes = n => { ghostsEl.textContent = `${n} / ${game.maxEchoes}`; };
+    showEchoes(game.echoesLeft());
+    game.on('echoes', showEchoes);
     game.on('win', () => { showWin(); });
-    game.on('rewind', () => { flashAlpha = 0.25; playRewind(); });
+    game.on('rewind', e => { flashAlpha = 0.25; playRewind(); statusEl.textContent = `Echo replays your last ${(e.path.length/60).toFixed(1)}s`; });
+    game.on('rewind-denied', why => { statusEl.textContent = why === 'echoes' ? 'No echoes left - U undoes the last one' : 'Nothing to rewind yet'; });
+    game.on('scrub-start', () => { statusEl.textContent = 'Rewinding... release to leave an echo'; });
+    game.on('scrub-cancel', () => { statusEl.textContent = 'Too short - hold longer to rewind'; });
+    game.on('undo', () => { statusEl.textContent = 'Echo removed'; });
+    statusEl.textContent = game.def.hint || '';
     cancelAnimationFrame(raf);
     lastTime = 0; acc = 0;
     raf = requestAnimationFrame(tick);
@@ -67,7 +73,7 @@
       mapKeys();
       if (e.code === 'Backspace') e.preventDefault();
       if (e.repeat) return; // ignore auto-repeat: one press = one action
-      if (e.code === 'Backspace') game.rewind();
+      if (e.code === 'KeyU' || e.code === 'Delete') { e.preventDefault(); game.undoEcho(); }
       if (e.code === 'KeyR') { e.preventDefault(); reset(); }
     };
     const up = e => { k[e.code] = false; mapKeys(); };
@@ -77,6 +83,7 @@
       input.left = !!(k['ArrowLeft']||k['KeyA']);
       input.right = !!(k['ArrowRight']||k['KeyD']);
       input.jump = !!(k['Space']||k['KeyZ']||k['KeyW']||k['ArrowUp']);
+      input.rewind = !!(k['Backspace']||k['KeyX']);
     }
     levelSelect?.addEventListener('change', () => {
       reset();
@@ -88,60 +95,47 @@
   function draw(){
     const w = canvas.width, h = canvas.height;
     const level = game.level;
-    // Clear
+    const t = game.viewT; // during a scrub the world previews the past
+    const power = game.scrubbing ? game.powerAt(t) : game.power;
     ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
     ctx.fillRect(0,0,w,h);
-    const mapW = level.cols * TILE;
-    const mapH = level.rows * TILE;
-    const offX = Math.floor((w - mapW)/2);
-    const offY = Math.floor((h - mapH)/2);
-    const wall = '#e5e7eb';
-    const accent = '#34d399';
-    const goalC = '#60a5fa';
-    const doorC = '#9ca3af';
-    // Draw grid
+    const offX = Math.floor((w - level.cols * TILE)/2);
+    const offY = Math.floor((h - level.rows * TILE)/2);
+    const C = window.__BACKSPACE_CONST;
     for(let y=0;y<level.rows;y++){
       for(let x=0;x<level.cols;x++){
-        const t = level.grid[y][x];
+        const c = level.grid[y][x];
         const rx = offX + x*TILE, ry= offY + y*TILE;
-        if (t === '#') { rect(rx,ry,TILE,TILE, wall); }
-        else if (t === 'S') { drawSwitch(rx,ry, accent); }
-        else if (t === 'D') { if (!game.doorOpen) drawDoor(rx,ry, doorC); }
-        else if (t === 'G') { drawGoal(rx,ry, goalC); }
+        if (c === '#') rect(rx,ry,TILE,TILE, '#e5e7eb');
+        else if (C.PLATE[c]) drawSwitch(rx,ry, '#34d399', power[C.PLATE[c]]);
+        else if (C.DOOR[c]) { if (!power[C.DOOR[c]]) drawDoor(rx,ry, '#9ca3af'); }
+        else if (c === 'G') drawGoal(rx,ry, '#60a5fa');
       }
     }
-    // Draw ghosts
-    ctx.globalAlpha = 0.6;
-    for (const g of game.ghosts) {
-      if (!g.active) continue;
-      // Trail behind ghost (faded)
-      if (g.i > 0) {
-        const step = 6;
-        for (let t = 1; t <= 4; t++) {
-          const idx = Math.max(0, g.i - t*step);
-          const p = g.path[idx];
-          const a = Math.max(0, 0.12 - t*0.02);
-          if (!p || a <= 0) continue;
-          ctx.globalAlpha = a;
-          drawPlayer(offX + p.x, offY + p.y, '#a78bfa');
-        }
-      }
-      ctx.globalAlpha = 0.6;
-      drawPlayer(offX + g.x, offY + g.y, '#a78bfa');
-    }
-    ctx.globalAlpha = 1;
-    // Draw player (red)
-    drawPlayer(offX + game.player.x, offY + game.player.y, '#ef4444');
-
-    // Highlight switch state with soft tint when door is open
-    if (game.doorOpen) {
-      ctx.globalAlpha = 0.06;
-      ctx.fillStyle = '#34d399';
-      ctx.fillRect(offX, offY, level.cols*TILE, level.rows*TILE);
+    // Echoes, positioned on the timeline
+    for (const e of game.echoes) {
+      const s = game.echoAt(e, t);
+      if (!s) continue;
+      const k = t - e.start, left = 1 - k / (e.path.length - 1);
+      ctx.globalAlpha = 0.65;
+      drawPlayer(offX + s.x, offY + s.y, '#a78bfa');
       ctx.globalAlpha = 1;
+      drawRing(offX + s.x, offY + s.y - 30, left, '#a78bfa');
+    }
+    if (game.scrubbing) {
+      // The path the new echo will replay
+      ctx.strokeStyle = '#a78bfa'; ctx.globalAlpha = 0.5; ctx.setLineDash([3,4]); ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = t; i <= game.T; i++) { const p = game.history[i]; const fn = i === t ? 'moveTo' : 'lineTo'; ctx[fn](offX + p.x, offY + p.y - 10); }
+      ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      const p = game.history[t];
+      drawPlayer(offX + p.x, offY + p.y, '#ef4444');
+      // Tint the world while time runs backwards
+      ctx.globalAlpha = 0.08; ctx.fillStyle = '#a78bfa'; ctx.fillRect(0,0,w,h); ctx.globalAlpha = 1;
+    } else {
+      drawPlayer(offX + game.player.x, offY + game.player.y, '#ef4444');
     }
 
-    // Rewind flash overlay
     if (flashAlpha > 0.001) {
       ctx.globalAlpha = flashAlpha;
       ctx.fillStyle = '#ffffff';
@@ -149,6 +143,11 @@
       ctx.globalAlpha = 1;
       flashAlpha *= 0.9;
     }
+  }
+
+  function drawRing(x, y, frac, color){
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, 4, -Math.PI/2, -Math.PI/2 + Math.PI*2*Math.max(0, frac)); ctx.stroke();
   }
 
   function drawPlayer(x,y,color){
@@ -160,10 +159,10 @@
   }
 
   function rect(x,y,w,h,color){ ctx.fillStyle=color; ctx.fillRect(x,y,w,h); }
-  function drawSwitch(x,y,c){
+  function drawSwitch(x,y,c,on){
     ctx.strokeStyle=c; ctx.lineWidth=2; ctx.beginPath();
     ctx.arc(x+TILE/2, y+TILE/2, 6, 0, Math.PI*2); ctx.stroke();
-    if (game && game.doorOpen) {
+    if (on) {
       ctx.fillStyle = '#34d399';
       ctx.globalAlpha = 0.3;
       ctx.fill();
@@ -230,8 +229,8 @@
     modalNextBtn.classList.toggle('hidden', last);
     document.getElementById('modal-title').textContent = last ? 'All levels complete!' : 'Level complete!';
     document.getElementById('modal-message').textContent = last
-      ? `You beat every level using ${game.ghostsUsed} ghost(s) on the final one.`
-      : `Solved with ${game.ghostsUsed} ghost(s).`;
+      ? `You beat every level using ${game.ghostsUsed} echo(es) on the final one.`
+      : `Solved with ${game.ghostsUsed} echo(es).`;
     modalEl.classList.remove('hidden');
   }
   function hideModal(){ modalEl.classList.add('hidden'); }

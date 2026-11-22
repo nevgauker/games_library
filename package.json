@@ -5,6 +5,9 @@
   "description": "Simple games library with suggestion form",
   "type": "module",
   "license": "UNLICENSED",
+  "scripts": {
+    "check-levels": "node tools/check-levels.cjs"
+  },
   "dependencies": {
     "pg": "^8.11.5"
   }
