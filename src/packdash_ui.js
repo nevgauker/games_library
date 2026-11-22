@@ -1,163 +1,154 @@
 // Pack & Dash UI: rendering + input + interactions
 (function(){
-  const canvas = document.getElementById('game');
+  const STEP_MS = 1000 / 60;
+  const $ = id => document.getElementById(id);
+  const canvas = $('game');
   const ctx = canvas.getContext('2d');
-  if (canvas) { canvas.tabIndex = 0; setTimeout(()=>canvas.focus(), 0); canvas.addEventListener('click', ()=>canvas.focus()); }
+  canvas.tabIndex = 0;
+  setTimeout(() => canvas.focus({ preventScroll: true }), 0);
+  canvas.addEventListener('click', () => canvas.focus({ preventScroll: true }));
 
-  const scoreEl = document.getElementById('score');
-  const timeEl = document.getElementById('time');
-  const itemsEl = document.getElementById('items-left');
-  const statusEl = document.getElementById('status');
+  const scoreEl = $('score'), timeEl = $('time'), itemsEl = $('items-left'), statusEl = $('status');
+  const modal = $('modal'), choice = $('pd-choice');
 
-  const restartBtn = document.getElementById('restart-btn');
-  const themeBtn = document.getElementById('theme-btn');
-  const modal = document.getElementById('modal');
-  const modalRestart = document.getElementById('modal-restart');
-  const modalClose = document.getElementById('modal-close');
-
-  const game = new PackDashGame();
+  const game = new PackDashGame(0);
   canvas.width = game.width;
   canvas.height = game.height;
 
-  // coworker choice panel (lightweight)
-  const choice = document.createElement('div');
-  choice.style.position = 'absolute';
-  choice.style.left = '50%';
-  choice.style.transform = 'translateX(-50%)';
-  choice.style.bottom = '32px';
-  choice.style.background = 'var(--panel)';
-  choice.style.border = '1px solid rgba(255,255,255,0.08)';
-  choice.style.padding = '8px 10px';
-  choice.style.borderRadius = '10px';
-  choice.style.display = 'none';
-  choice.style.gap = '8px';
-  choice.style.boxShadow = '0 8px 16px rgba(0,0,0,0.25)';
-  choice.setAttribute('role','group');
-  const waveBtn = document.createElement('button'); waveBtn.textContent = '👋 Wave (+5)';
-  const hugBtn = document.createElement('button'); hugBtn.textContent = '🤗 Hug (+10, cozy)';
-  const ignBtn = document.createElement('button'); ignBtn.textContent = '🕶️ Stealth Nod (-2)';
-  choice.append(waveBtn, hugBtn, ignBtn);
-  document.body.appendChild(choice);
-
-  function openChoice(){ choice.style.display = 'flex'; }
-  function closeChoice(){ choice.style.display = 'none'; }
-
-  function setThemeToggle(btn){
-    const root = document.documentElement;
-    function cur(){ return root.getAttribute('data-theme') || 'dark'; }
-    btn.addEventListener('click', ()=>{
-      const next = cur() === 'dark' ? 'light' : 'dark';
-      root.setAttribute('data-theme', next);
-      btn.setAttribute('aria-pressed', String(next === 'light'));
-    });
-  }
-
+  function openChoice(){ choice.classList.remove('hidden'); }
+  function closeChoice(){ choice.classList.add('hidden'); }
   function openModal(title, msg){
-    document.getElementById('modal-title').textContent = title;
-    document.getElementById('modal-message').textContent = msg;
+    $('modal-title').textContent = title;
+    $('modal-message').textContent = msg;
     modal.classList.remove('hidden');
+    $('modal-restart').focus();
   }
   function closeModal(){ modal.classList.add('hidden'); }
 
-  restartBtn.addEventListener('click', () => { closeModal(); closeChoice(); game.restart(); statusEl.textContent=''; canvas && canvas.focus(); });
-  modalRestart && modalRestart.addEventListener('click', () => { closeModal(); closeChoice(); game.restart(); statusEl.textContent=''; canvas && canvas.focus(); });
-  modalClose && modalClose.addEventListener('click', () => { closeModal(); canvas && canvas.focus(); });
-  themeBtn && setThemeToggle(themeBtn);
+  function restart(){
+    closeModal(); closeChoice();
+    keys.length = 0; game.input(null);
+    game.restart();
+    acc = 0; bossFlash = 0;
+    canvas.focus({ preventScroll: true });
+  }
 
-  // input
-  const keys = new Set();
-  function updateDir(){
-    // prioritize last pressed; simple mapping
-    if (keys.has('left')) game.input('left');
-    else if (keys.has('right')) game.input('right');
-    else if (keys.has('up')) game.input('up');
-    else if (keys.has('down')) game.input('down');
-    else game.input(null);
-  }
-  function onKey(e){
-    const k=(e.key||'').toLowerCase(); const c=e.code||'';
-    if (k.startsWith('arrow')||c.startsWith('Arrow')) e.preventDefault();
-    if (k==='r'||c==='KeyR'){ game.restart(); return; }
-    if (k==='arrowleft'||k==='a'||c==='ArrowLeft'||c==='KeyA') { keys.add('left'); keys.delete('right'); }
-    if (k==='arrowright'||k==='d'||c==='ArrowRight'||c==='KeyD') { keys.add('right'); keys.delete('left'); }
-    if (k==='arrowup'||k==='w'||c==='ArrowUp'||c==='KeyW') { keys.add('up'); keys.delete('down'); }
-    if (k==='arrowdown'||k==='s'||c==='ArrowDown'||c==='KeyS') { keys.add('down'); keys.delete('up'); }
-    updateDir();
-  }
-  function onKeyUp(e){
-    const k=(e.key||'').toLowerCase(); const c=e.code||'';
-    if (k==='arrowleft'||k==='a'||c==='ArrowLeft'||c==='KeyA') keys.delete('left');
-    if (k==='arrowright'||k==='d'||c==='ArrowRight'||c==='KeyD') keys.delete('right');
-    if (k==='arrowup'||k==='w'||c==='ArrowUp'||c==='KeyW') keys.delete('up');
-    if (k==='arrowdown'||k==='s'||c==='ArrowDown'||c==='KeyS') keys.delete('down');
-    updateDir();
-  }
-  document.addEventListener('keydown', onKey, { passive:false });
-  document.addEventListener('keyup', onKeyUp, { passive:false });
+  $('restart-btn').addEventListener('click', restart);
+  $('modal-restart').addEventListener('click', restart);
 
-  // coworker choice actions
-  waveBtn.addEventListener('click', ()=>{ game.choose('wave'); closeChoice(); });
-  hugBtn.addEventListener('click', ()=>{ game.choose('hug'); closeChoice(); });
-  ignBtn.addEventListener('click', ()=>{ game.choose('ignore'); closeChoice(); });
+  const themeBtn = $('theme-btn');
+  themeBtn.addEventListener('click', () => {
+    const root = document.documentElement;
+    const next = (root.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    themeBtn.setAttribute('aria-pressed', String(next === 'light'));
+  });
+
+  // input: most recently pressed direction wins, releasing falls back to the previous one
+  const keys = [];
+  const KEY_DIR = { arrowleft:'left', a:'left', arrowright:'right', d:'right', arrowup:'up', w:'up', arrowdown:'down', s:'down' };
+  const CHOICE_KEYS = { '1':'wave', '2':'hug', '3':'ignore' };
+  function dirFor(e){ return KEY_DIR[(e.key || '').toLowerCase()] || KEY_DIR[(e.code || '').replace(/^Key/, '').toLowerCase()]; }
+  function syncDir(){ game.input(keys[keys.length - 1] || null); }
+
+  document.addEventListener('keydown', e => {
+    if (e.target.closest && e.target.closest('input, textarea')) return;
+    const k = (e.key || '').toLowerCase();
+    if (k === 'r'){ e.preventDefault(); restart(); return; }
+    if (CHOICE_KEYS[k]){ if (game.choose(CHOICE_KEYS[k])) e.preventDefault(); return; }
+    const d = dirFor(e);
+    if (!d) return;
+    e.preventDefault();
+    if (!keys.includes(d)) keys.push(d);
+    syncDir();
+  });
+  document.addEventListener('keyup', e => {
+    const d = dirFor(e);
+    if (!d) return;
+    const i = keys.indexOf(d);
+    if (i >= 0) keys.splice(i, 1);
+    syncDir();
+  });
+  window.addEventListener('blur', () => { keys.length = 0; syncDir(); });
+
+  for (const btn of choice.querySelectorAll('button[data-choice]')){
+    btn.addEventListener('click', () => { game.choose(btn.dataset.choice); canvas.focus({ preventScroll: true }); });
+  }
 
   // events
+  let memoryTimer = 0;
   game.on('time', t => timeEl.textContent = String(t));
   game.on('score', s => scoreEl.textContent = String(s));
   game.on('items', n => itemsEl.textContent = String(n));
-  game.on('status', msg => statusEl.textContent = msg || '');
-  game.on('memory', m => { statusEl.textContent = m; setTimeout(()=>{ if(statusEl.textContent===m) statusEl.textContent=''; }, 2500); });
-  game.on('coworker', () => openChoice());
-  game.on('coworkerGone', () => closeChoice());
-  game.on('bossTalk', () => {/* visual handled via render flash */});
-  game.on('win', ({score}) => { openModal('You’re out! 🎉', `Elevator doors close triumphantly. Score: ${score}`); });
-  game.on('lose', ({score, itemsLeft}) => { const msg = itemsLeft>0 ? `Time! ${itemsLeft} thing(s) waving at your desk. You’ve got this next dash. Score: ${score}` : `So close! The elevator music fades dramatically. Score: ${score}`; openModal('Game Over (for now)', msg); });
+  game.on('status', msg => { clearTimeout(memoryTimer); statusEl.textContent = msg || ''; });
+  game.on('memory', m => {
+    clearTimeout(memoryTimer);
+    statusEl.textContent = m;
+    memoryTimer = setTimeout(() => { if (statusEl.textContent === m) statusEl.textContent = ''; }, 2500);
+  });
+  game.on('coworkerNear', openChoice);
+  game.on('coworkerFar', closeChoice);
+  game.on('coworkerGone', closeChoice);
+  game.on('win', ({score}) => { closeChoice(); openModal('You’re out! 🎉', `Elevator doors close triumphantly. Score: ${score}`); });
+  game.on('lose', ({score, itemsLeft}) => {
+    closeChoice();
+    const msg = itemsLeft > 0
+      ? `Time! ${itemsLeft} thing(s) waving at your desk. You’ve got this next dash. Score: ${score}`
+      : `So close! The elevator music fades dramatically. Score: ${score}`;
+    openModal('Game Over (for now)', msg);
+  });
+  // the constructor's initial events fired before these listeners existed
+  timeEl.textContent = String(Math.ceil(game.timeLeft));
+  scoreEl.textContent = String(game.score);
+  itemsEl.textContent = String(game.itemsLeft);
+  statusEl.textContent = 'Pack fast, smile often!';
 
-  let last = performance.now();
-  let bossFlash = 0;
-  function loop(t){
-    const dt = Math.min(0.05, (t-last)/1000); last=t;
-    game.step(dt);
-    render(dt);
+  // fixed 60 Hz simulation, rendering every frame
+  let last = 0, acc = 0, bossFlash = 0;
+  function loop(now){
+    if (!last) last = now;
+    acc += Math.min(250, now - last);
+    last = now;
+    while (acc >= STEP_MS){
+      game.step(STEP_MS / 1000);
+      bossFlash = game.boss.talk > 0 ? Math.min(0.4, bossFlash + 0.02) : Math.max(0, bossFlash - 0.02);
+      acc -= STEP_MS;
+    }
+    render();
     requestAnimationFrame(loop);
   }
+  document.addEventListener('visibilitychange', () => { last = 0; acc = 0; });
 
-  function render(dt){
-    const TILE = window.__PACKDASH_CONST.TILE;
-    // bg
+  function render(){
+    const TILE = game.tile;
     ctx.fillStyle = '#0a1224';
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // subtle grid
-    ctx.strokeStyle = 'rgba(148,163,184,0.07)'; ctx.lineWidth=1;
-    for (let x=0;x<=canvas.width;x+=TILE){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
-    for (let y=0;y<=canvas.height;y+=TILE){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(148,163,184,0.07)'; ctx.lineWidth = 1;
+    for (let x = 0; x <= canvas.width; x += TILE){ ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+    for (let y = 0; y <= canvas.height; y += TILE){ ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
 
-    // walls/desks
     ctx.fillStyle = '#18233a';
-    for (const w of game.walls){ ctx.fillRect(w.x,w.y,w.w,w.h); }
+    for (const w of game.walls) ctx.fillRect(w.x, w.y, w.w, w.h);
 
-    // elevator
-    ctx.fillStyle = '#334155';
-    const e = game.elevator; ctx.fillRect(e.x, e.y, e.w, e.h);
+    const e = game.elevator;
+    ctx.fillStyle = '#334155'; ctx.fillRect(e.x, e.y, e.w, e.h);
     ctx.fillStyle = '#93c5fd'; ctx.fillRect(e.x+2, e.y+2, e.w-4, 6);
     ctx.fillStyle = '#60a5fa'; ctx.fillRect(e.x+2, e.y+e.h-8, e.w-4, 6);
 
-    // items
-    for (const it of game.items){ if (it.picked) continue; const cx = it.gx*TILE + TILE/2, cy = it.gy*TILE + TILE/2; drawEmoji(it.data.icon, cx, cy, 12); }
+    for (const it of game.items){
+      if (!it.picked) drawEmoji(it.data.icon, it.gx*TILE + TILE/2, it.gy*TILE + TILE/2, 12);
+    }
 
-    // boss
-    drawEmoji('👔', game.boss.x+game.boss.w/2, game.boss.y+game.boss.h/2, 10);
-    if (game.boss.talk>0){ bossFlash = Math.min(0.4, bossFlash + 0.02); }
-    else { bossFlash = Math.max(0, bossFlash - 0.02); }
+    drawEmoji('👔', game.boss.x + game.boss.w/2, game.boss.y + game.boss.h/2, 10);
+    const c = game.coworker;
+    if (c) drawEmoji('🙂', c.x + c.w/2, c.y + c.h/2, 10);
 
-    // coworker
-    if (game.coworker){ drawEmoji('🙂', game.coworker.x+game.coworker.w/2, game.coworker.y+game.coworker.h/2, 10); }
-
-    // player
-    const p = game.player; ctx.fillStyle = '#34d399'; ctx.fillRect(p.x, p.y, p.w, p.h);
+    const p = game.player;
+    ctx.fillStyle = '#34d399'; ctx.fillRect(p.x, p.y, p.w, p.h);
     ctx.fillStyle = '#22c55e'; ctx.fillRect(p.x, p.y, p.w, 3);
 
-    if (bossFlash>0){ ctx.fillStyle = `rgba(59,130,246,${bossFlash.toFixed(3)})`; ctx.fillRect(0,0,canvas.width,canvas.height); }
+    if (bossFlash > 0){ ctx.fillStyle = `rgba(59,130,246,${bossFlash.toFixed(3)})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   }
 
   function drawEmoji(char, x, y, size){

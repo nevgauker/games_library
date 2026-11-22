@@ -1,176 +1,283 @@
-// Pack & Dash! Minimal humorous office dash
+// Pack & Dash! engine: grab your desk items, dodge small talk, reach the elevator.
+// Pure simulation (no DOM). The UI drives it with step(1/60) and input(dir).
 (function(global){
   const TILE = 16;
-  const COLS = 24; // 384px
-  const ROWS = 20; // 320px
-  const BASE_SPEED = 80; // px/s
+  const BASE_SPEED = 80;        // px/s
+  const BOSS_TALK = 3.0;        // s the boss keeps you chatting
+  const BOSS_SLOW = 0.4;        // speed multiplier while chatting
+  const BOSS_COOLDOWN = 2.0;    // s after a chat before the boss can grab you again
+  const COWORKER_TTL = 3.5;     // s a coworker hangs around
+  const COWORKER_REACH = 22;    // px between centres that opens the greeting prompt
 
   function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
   function rectsOverlap(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
+  function centre(r){ return { x: r.x + r.w/2, y: r.y + r.h/2 }; }
 
-  class Emitter{ constructor(){ this.m=new Map(); } on(e,f){ if(!this.m.has(e)) this.m.set(e,[]); this.m.get(e).push(f);} emit(e,v){ const a=this.m.get(e)||[]; for(const f of a) f(v); } }
-
-  // Procedural tiny office: outer walls + a few desks (rects)
-  function makeOffice(){
-    const walls = [];
-    // outer border
-    walls.push({x:0,y:0,w:COLS*TILE,h:TILE}); // top
-    walls.push({x:0,y:(ROWS-1)*TILE,w:COLS*TILE,h:TILE}); // bottom
-    walls.push({x:0,y:0,w:TILE,h:ROWS*TILE}); // left
-    walls.push({x:(COLS-1)*TILE,y:0,w:TILE,h:ROWS*TILE}); // right
-    // desks
-    const desk = (gx,gy,gw,gh)=>({x:gx*TILE,y:gy*TILE,w:gw*TILE,h:gh*TILE});
-    walls.push(desk(6,5,4,2));
-    walls.push(desk(14,5,4,2));
-    walls.push(desk(6,11,4,2));
-    walls.push(desk(14,11,4,2));
-    return walls;
+  // Small seeded PRNG so runs (and the level checker) are reproducible.
+  function mulberry32(seed){
+    let a = seed >>> 0;
+    return function(){
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
   }
 
-  const ITEMS = [
-    { icon:'☕', name:'coffee mug', memory:'“Remember the latte art phase? Abstract, but heartfelt.”' },
-    { icon:'🌱', name:'desk plant', memory:'“Remember naming the plant Carl? A true survivor.”' },
-    { icon:'🧼', name:'weird stress ball', memory:'“Remember squishing this during all‑hands? Elite form.”' },
-    { icon:'🖊️', name:'favorite pen', memory:'“Remember guarding this pen like treasure? Valid.”' },
-    { icon:'📎', name:'lucky paperclip', memory:'“Remember the paperclip chain championship? Unstoppable.”' },
-    { icon:'🍪', name:'secret snack', memory:'“Remember snack o’clock at 3:07? Iconic.”' },
-  ];
+  class Emitter{
+    constructor(){ this.m = new Map(); }
+    on(e,f){ if (!this.m.has(e)) this.m.set(e, []); this.m.get(e).push(f); }
+    emit(e,v){ const a = this.m.get(e) || []; for (const f of a) f(v); }
+  }
+
+  // Parse an ASCII level into grid + entities. Throws on malformed maps.
+  function parseLevel(def){
+    const rows = def.map.length, cols = def.map[0].length;
+    const grid = [];
+    let spawn = null, bossStart = null;
+    const elev = [], items = [];
+    for (let y = 0; y < rows; y++){
+      const line = def.map[y];
+      if (line.length !== cols) throw new Error(`row ${y} has ${line.length} cols, expected ${cols}`);
+      const row = [];
+      for (let x = 0; x < cols; x++){
+        const ch = line[x];
+        row.push(ch === '#');
+        if (ch === 'P') spawn = { gx:x, gy:y };
+        else if (ch === 'b') bossStart = { gx:x, gy:y };
+        else if (ch === 'E') elev.push({ gx:x, gy:y });
+        else if (ch >= '1' && ch <= '9') items.push({ gx:x, gy:y, idx: ch.charCodeAt(0) - 49 });
+        else if (ch !== '#' && ch !== '.') throw new Error(`unknown tile '${ch}' at ${x},${y}`);
+      }
+      grid.push(row);
+    }
+    if (!spawn) throw new Error('no player spawn (P)');
+    if (!bossStart) throw new Error('no boss start (b)');
+    if (elev.length !== 4) throw new Error(`elevator must be a 2x2 block, found ${elev.length} tiles`);
+    const ex = Math.min(...elev.map(e => e.gx)), ey = Math.min(...elev.map(e => e.gy));
+    for (const e of elev) if (e.gx > ex+1 || e.gy > ey+1) throw new Error('elevator tiles are not a 2x2 block');
+    if (!items.length) throw new Error('no items');
+    items.sort((a,b) => a.idx - b.idx);
+    for (let i = 1; i < items.length; i++) if (items[i].idx === items[i-1].idx) throw new Error(`item ${items[i].idx+1} placed twice`);
+    // Merge horizontal wall runs into rects for collision.
+    const walls = [];
+    for (let y = 0; y < rows; y++){
+      let x = 0;
+      while (x < cols){
+        if (!grid[y][x]){ x++; continue; }
+        const x0 = x; while (x < cols && grid[y][x]) x++;
+        walls.push({ x:x0*TILE, y:y*TILE, w:(x-x0)*TILE, h:TILE });
+      }
+    }
+    return { rows, cols, grid, walls, spawn, bossStart, elevator:{ gx:ex, gy:ey }, items };
+  }
 
   class PackDashGame extends Emitter{
-    constructor(){
+    constructor(levelIndex = 0, opts = {}){
       super();
-      this.cols=COLS; this.rows=ROWS; this.tile=TILE; this.width=COLS*TILE; this.height=ROWS*TILE;
+      this.levels = opts.levels || global.PACKDASH_LEVELS;
+      this.itemDefs = opts.items || global.PACKDASH_ITEMS;
+      this.seed = opts.seed;
+      this.levelIndex = levelIndex;
       this.restart();
     }
 
     restart(){
-      this.timeLeft = 60.0;
+      const def = this.levels[this.levelIndex];
+      const L = parseLevel(def);
+      this.def = def;
+      this.rng = mulberry32(this.seed != null ? this.seed : (Math.random() * 2**32));
+      this.cols = L.cols; this.rows = L.rows; this.tile = TILE;
+      this.width = L.cols * TILE; this.height = L.rows * TILE;
+      this.grid = L.grid; this.walls = L.walls;
+      this.state = 'playing';
+      this.time = 0;
+      this.timeLeft = def.time;
       this.score = 0;
-      this.walls = makeOffice();
-      this.player = { x: 2*TILE+2, y: 2*TILE+2, w: TILE-4, h: TILE-4, vx:0, vy:0 };
-      this.baseSpeed = BASE_SPEED; this.speedMul = 1.0; this.slowTimer=0; this.boostTimer=0;
-      this.elevator = { x:(COLS-3)*TILE, y:(ROWS-3)*TILE, w:2*TILE, h:2*TILE };
-      // scatter items
-      this.items = [];
-      const spots = [ [4,4],[10,4],[18,4],[4,9],[18,9],[8,15] ];
-      for (let i=0;i<ITEMS.length;i++){
-        const [gx,gy] = spots[i];
-        this.items.push({ gx, gy, picked:false, data: ITEMS[i] });
-      }
+      this.dir = null;
+      this.effects = [];        // { kind, mul, t } - speed multiplier is their product
+      this.player = { x: L.spawn.gx*TILE+2, y: L.spawn.gy*TILE+2, w: TILE-4, h: TILE-4, vx:0, vy:0 };
+      this.elevator = { x: L.elevator.gx*TILE, y: L.elevator.gy*TILE, w: 2*TILE, h: 2*TILE };
+      this.items = L.items.map(it => ({ gx: it.gx, gy: it.gy, picked:false, data: this.itemDefs[it.idx] }));
+      if (this.items.some(it => !it.data)) throw new Error('map references an item that is not in PACKDASH_ITEMS');
       this.itemsLeft = this.items.length;
-      // boss
-      this.boss = { x: 12*TILE, y: 2*TILE, w: TILE-2, h: TILE-2, dir: 1, talk:0 };
-      // coworker spawn
-      this.coworker = null; this.coworkerTimer = 2.5 + Math.random()*3;
+      const bc = def.boss || {};
+      this.boss = { x: L.bossStart.gx*TILE+1, y: L.bossStart.gy*TILE+1, w: TILE-2, h: TILE-2,
+                    dir: 1, speed: bc.speed ?? 40, range: (bc.range ?? 6) * TILE, talk: 0, cooldown: 0 };
+      this.coworker = null;
+      this.coworkerTimer = 2.5 + this.rng() * 3;
       this.emit('time', Math.ceil(this.timeLeft));
       this.emit('score', this.score);
       this.emit('items', this.itemsLeft);
       this.emit('status', 'Pack fast, smile often!');
     }
 
-    input(dir){
-      const s = this.baseSpeed * this.speedMul;
-      this.player.vx = dir==='left'?-s:dir==='right'?s:0;
-      this.player.vy = dir==='up'?-s:dir==='down'?s:0;
-      if (!dir) { this.player.vx=0; this.player.vy=0; }
+    input(dir){ this.dir = dir || null; }
+
+    get speedMul(){ let m = 1; for (const e of this.effects) m *= e.mul; return m; }
+
+    // Replaces any running effect of the same kind (no stacking, no leftovers).
+    addEffect(kind, mul, t){
+      this.effects = this.effects.filter(e => e.kind !== kind);
+      this.effects.push({ kind, mul, t });
     }
+
+    isWall(gx, gy){ return gy < 0 || gy >= this.rows || gx < 0 || gx >= this.cols || this.grid[gy][gx]; }
 
     step(dt){
-      if (this.timeLeft <= 0) return;
+      if (this.state !== 'playing') return;
+      this.time += dt;
       this.timeLeft = Math.max(0, this.timeLeft - dt);
       this.emit('time', Math.ceil(this.timeLeft));
-      // decay buffs/debuffs
-      if (this.boostTimer>0){ this.boostTimer-=dt; if (this.boostTimer<=0) this.speedMul = Math.max(1.0, this.speedMul); }
-      if (this.slowTimer>0){ this.slowTimer-=dt; if (this.slowTimer<=0) this.speedMul = Math.max(1.0, this.speedMul); }
-      if (this.boss.talk>0){ this.boss.talk-=dt; if (this.boss.talk<=0) this.emit('status','You escape the chat.'); }
 
-      // boss roam horizontally; bounce on desks/walls
-      const b = this.boss; const bs = 40; const oldx=b.x; b.x += b.dir*bs*dt;
-      const bRect = {x:b.x,y:b.y,w:b.w,h:b.h};
-      if (this.collidesAny(bRect, this.walls)) { b.x=oldx; b.dir*=-1; }
+      for (const e of this.effects) e.t -= dt;
+      this.effects = this.effects.filter(e => e.t > 0);
 
-      // boss line-of-sight (same row or col within 6 tiles, no wall between)
-      if (this.boss.talk<=0 && this.hasLOS(b, this.player, 6*TILE)){
-        this.boss.talk = 3.0; // long awkward talk
-        this.speedMul = 0.4; this.slowTimer = 3.0;
-        this.emit('status','Boss: “Quick congrats + tiny chat?” (So tiny.)');
+      this.stepBoss(dt);
+      this.stepCoworker(dt);
+      this.stepPlayer(dt);
+      this.pickItems();
+
+      if (this.itemsLeft === 0 && rectsOverlap(this.player, this.elevator)){
+        this.state = 'won';
+        this.emit('win', { score: this.score, timeLeft: this.timeLeft });
+        return;
+      }
+      if (this.timeLeft <= 0){
+        this.state = 'lost';
+        this.emit('lose', { score: this.score, itemsLeft: this.itemsLeft });
+      }
+    }
+
+    stepBoss(dt){
+      const b = this.boss;
+      if (b.talk > 0){
+        // He stands still while he talks at you.
+        b.talk -= dt;
+        if (b.talk <= 0){ b.cooldown = BOSS_COOLDOWN; this.emit('status', 'You escape the chat.'); }
+        return;
+      }
+      if (b.cooldown > 0) b.cooldown -= dt;
+      const oldx = b.x;
+      b.x += b.dir * b.speed * dt;
+      if (this.collidesAny(b)) { b.x = oldx; b.dir *= -1; }
+      if (b.cooldown <= 0 && this.hasLOS(b, this.player, b.range)){
+        b.talk = BOSS_TALK;
+        this.addEffect('boss', BOSS_SLOW, BOSS_TALK);
+        this.emit('status', 'Boss: “Quick congrats + tiny chat?” (So tiny.)');
         this.emit('bossTalk');
       }
+    }
 
-      // coworker spawn
+    stepCoworker(dt){
+      const c = this.coworker;
+      if (c){
+        c.ttl -= dt;
+        if (c.ttl <= 0){ this.dismissCoworker(); return; }
+        const pc = centre(this.player), cc = centre(c);
+        const near = Math.hypot(pc.x - cc.x, pc.y - cc.y) <= COWORKER_REACH;
+        if (near !== c.near){ c.near = near; this.emit(near ? 'coworkerNear' : 'coworkerFar'); }
+        return;
+      }
       this.coworkerTimer -= dt;
-      if (this.coworkerTimer<=0 && !this.coworker){
-        const dx = (Math.random()<0.5?-1:1)*(2+Math.floor(Math.random()*3));
-        const dy = (Math.random()<0.5?-1:1)*(1+Math.floor(Math.random()*2));
-        const gx = clamp(Math.floor(this.player.x/TILE)+dx, 2, COLS-3), gy = clamp(Math.floor(this.player.y/TILE)+dy, 2, ROWS-3);
-        this.coworker = { x: gx*TILE+2, y: gy*TILE+2, w: TILE-4, h: TILE-4, ttl: 3.5 };
-        this.emit('coworker', { x:this.coworker.x, y:this.coworker.y });
-        this.coworkerTimer = 6 + Math.random()*6;
+      if (this.coworkerTimer > 0) return;
+      this.coworkerTimer = 6 + this.rng() * 6;
+      const spot = this.pickCoworkerSpot();
+      if (!spot) return;
+      this.coworker = { x: spot.gx*TILE+2, y: spot.gy*TILE+2, w: TILE-4, h: TILE-4, ttl: COWORKER_TTL, near:false };
+      this.emit('coworker', { x: this.coworker.x, y: this.coworker.y });
+    }
+
+    // A floor tile 2-4 tiles from the player, clear of the boss, items and elevator.
+    pickCoworkerSpot(){
+      const pgx = Math.floor(centre(this.player).x / TILE), pgy = Math.floor(centre(this.player).y / TILE);
+      const bgx = Math.floor(centre(this.boss).x / TILE), bgy = Math.floor(centre(this.boss).y / TILE);
+      const egx = this.elevator.x / TILE, egy = this.elevator.y / TILE;
+      const spots = [];
+      for (let gy = pgy - 4; gy <= pgy + 4; gy++) for (let gx = pgx - 4; gx <= pgx + 4; gx++){
+        const d = Math.abs(gx - pgx) + Math.abs(gy - pgy);
+        if (d < 2 || d > 4 || this.isWall(gx, gy)) continue;
+        if (Math.abs(gx - bgx) + Math.abs(gy - bgy) < 2) continue;
+        if (gx >= egx && gx <= egx + 1 && gy >= egy && gy <= egy + 1) continue;
+        if (this.items.some(it => !it.picked && it.gx === gx && it.gy === gy)) continue;
+        spots.push({ gx, gy });
       }
-      if (this.coworker){ this.coworker.ttl -= dt; if (this.coworker.ttl<=0) { this.coworker=null; this.emit('coworkerGone'); } }
+      return spots.length ? spots[Math.floor(this.rng() * spots.length)] : null;
+    }
 
-      // movement with collision (separate axis)
-      const p=this.player; const oldPx=p.x, oldPy=p.y;
-      p.x = clamp(p.x + p.vx*dt, TILE+1, this.width - TILE - 1);
-      if (this.collidesAny(p, this.walls)) p.x = oldPx;
-      p.y = clamp(p.y + p.vy*dt, TILE+1, this.height - TILE - 1);
-      if (this.collidesAny(p, this.walls)) p.y = oldPy;
+    dismissCoworker(){
+      this.coworker = null;
+      this.emit('coworkerGone');
+    }
 
-      // items
+    stepPlayer(dt){
+      const p = this.player, s = BASE_SPEED * this.speedMul, d = this.dir;
+      p.vx = d === 'left' ? -s : d === 'right' ? s : 0;
+      p.vy = d === 'up' ? -s : d === 'down' ? s : 0;
+      const ox = p.x, oy = p.y;
+      p.x = clamp(p.x + p.vx*dt, 0, this.width - p.w);
+      if (this.collidesAny(p)) p.x = ox;
+      p.y = clamp(p.y + p.vy*dt, 0, this.height - p.h);
+      if (this.collidesAny(p)) p.y = oy;
+    }
+
+    pickItems(){
+      const p = this.player;
       for (const it of this.items){
-        if (!it.picked){
-          const r = { x: it.gx*TILE+3, y: it.gy*TILE+3, w: TILE-6, h: TILE-6 };
-          if (rectsOverlap(p, r)){
-            it.picked = true; this.itemsLeft -= 1; this.score += 10; this.emit('score', this.score); this.emit('items', this.itemsLeft);
-            this.emit('memory', it.data.memory);
-          }
-        }
+        if (it.picked) continue;
+        const r = { x: it.gx*TILE+3, y: it.gy*TILE+3, w: TILE-6, h: TILE-6 };
+        if (!rectsOverlap(p, r)) continue;
+        it.picked = true;
+        this.itemsLeft -= 1;
+        this.score += 10;
+        this.emit('score', this.score);
+        this.emit('items', this.itemsLeft);
+        this.emit('memory', it.data.memory);
+        if (this.itemsLeft === 0) this.emit('status', 'Box packed! Elevator’s open.');
       }
-
-      // coworker interaction zone (small)
-      if (this.coworker && rectsOverlap(p, this.coworker)) {
-        // ambient, no action here; UI handles choices
-      }
-
-      // win/lose
-      const needElevator = this.itemsLeft===0;
-      const inElev = rectsOverlap(p, this.elevator);
-      if (needElevator && inElev){ this.timeLeft = 0; this.emit('win', { score: this.score }); return; }
-      if (this.timeLeft<=0){ this.emit('lose', { score: this.score, itemsLeft: this.itemsLeft }); }
     }
 
-    collidesAny(r, arr){ for (const a of arr){ if (rectsOverlap(r,a)) return true; } return false; }
+    collidesAny(r){ for (const w of this.walls) if (rectsOverlap(r, w)) return true; return false; }
 
+    // Boss sees along his row/column (centres within half a tile), up to maxDist px,
+    // as long as no wall tile sits between you.
     hasLOS(boss, player, maxDist){
-      const dx = Math.abs((boss.x+boss.w/2) - (player.x+player.w/2));
-      const dy = Math.abs((boss.y+boss.h/2) - (player.y+player.h/2));
-      if (dx>maxDist && dy>maxDist) return false;
-      const sameRow = dy < TILE/2; const sameCol = dx < TILE/2;
-      if (!(sameRow || sameCol)) return false;
-      // check walls between
+      const bc = centre(boss), pc = centre(player);
+      const dx = Math.abs(bc.x - pc.x), dy = Math.abs(bc.y - pc.y);
+      const sameRow = dy < TILE/2, sameCol = dx < TILE/2;
+      if (!sameRow && !sameCol) return false;
+      if ((sameRow ? dx : dy) > maxDist) return false;
+      const bgx = Math.floor(bc.x / TILE), bgy = Math.floor(bc.y / TILE);
+      const pgx = Math.floor(pc.x / TILE), pgy = Math.floor(pc.y / TILE);
       if (sameRow){
-        const y = boss.y; const minx = Math.min(boss.x, player.x), maxx = Math.max(boss.x, player.x);
-        for (const w of this.walls){ if (y >= w.y-1 && y <= w.y+w.h+1 && !(w.x > maxx || w.x+w.w < minx)) return false; }
-        return true;
+        for (let x = Math.min(bgx, pgx) + 1; x < Math.max(bgx, pgx); x++) if (this.isWall(x, bgy)) return false;
+      } else {
+        for (let y = Math.min(bgy, pgy) + 1; y < Math.max(bgy, pgy); y++) if (this.isWall(bgx, y)) return false;
       }
-      if (sameCol){
-        const x = boss.x; const miny = Math.min(boss.y, player.y), maxy = Math.max(boss.y, player.y);
-        for (const w of this.walls){ if (x >= w.x-1 && x <= w.x+w.w+1 && !(w.y > maxy || w.y+w.h < miny)) return false; }
-        return true;
-      }
-      return false;
+      return true;
     }
 
-    // coworker choice outcomes
+    // Coworker greeting; only valid while you're standing next to them.
     choose(action){
-      if (!this.coworker) return;
-      if (action==='wave'){ this.score += 5; this.emit('score', this.score); this.speedMul = 1.2; this.boostTimer = 2.0; this.emit('status','You wave like a pro. Zoom zoom!'); }
-      else if (action==='hug'){ this.score += 10; this.emit('score', this.score); this.speedMul = 0.7; this.slowTimer = 1.0; this.emit('status','Wholesome hug achieved. Heart full, feet slower.'); }
-      else if (action==='ignore'){ this.score = Math.max(0, this.score - 2); this.emit('score', this.score); this.emit('status','You deploy the stealth nod. Smooth.'); }
-      this.coworker = null; this.emit('coworkerGone');
+      const c = this.coworker;
+      if (!c || !c.near || this.state !== 'playing') return false;
+      if (action === 'wave'){
+        this.score += 5; this.addEffect('mood', 1.2, 2.0);
+        this.emit('status', 'You wave like a pro. Zoom zoom!');
+      } else if (action === 'hug'){
+        this.score += 10; this.addEffect('mood', 0.7, 1.0);
+        this.emit('status', 'Wholesome hug achieved. Heart full, feet slower.');
+      } else if (action === 'ignore'){
+        this.score = Math.max(0, this.score - 2);
+        this.emit('status', 'You deploy the stealth nod. Smooth.');
+      } else return false;
+      this.emit('score', this.score);
+      this.dismissCoworker();
+      return true;
     }
   }
 
   global.PackDashGame = PackDashGame;
-  global.__PACKDASH_CONST = { TILE, COLS, ROWS };
+  global.__PACKDASH_CONST = { TILE, BASE_SPEED, parseLevel };
 })(window);

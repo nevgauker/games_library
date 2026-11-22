@@ -24,7 +24,14 @@
         <div id="status" aria-live="polite"></div>
       </section>
       <section class="backspace-wrap">
-        <canvas id="game" width="384" height="320" aria-label="Office floor"></canvas>
+        <div class="pd-stage">
+          <canvas id="game" width="384" height="320" aria-label="Office floor"></canvas>
+          <div id="pd-choice" class="pd-choice hidden" role="group" aria-label="Greet your coworker">
+            <button type="button" data-choice="wave"><kbd>1</kbd> 👋 Wave (+5)</button>
+            <button type="button" data-choice="hug"><kbd>2</kbd> 🤗 Hug (+10, cozy)</button>
+            <button type="button" data-choice="ignore"><kbd>3</kbd> 🕶️ Stealth Nod (-2)</button>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -43,12 +50,13 @@
         <p id="modal-message">Game Over or maybe Game Restart somewhere new 👋</p>
         <div class="modal-actions">
           <button id="modal-restart" type="button">Restart</button>
-          <button id="modal-close" type="button">Close</button>
+          <a id="modal-library" class="button" href="index.html">Library</a>
         </div>
       </div>
     </div>
 
+    <script src="src/packdash_levels.js"></script>
     <script src="src/packdash.js"></script>
     <script src="src/packdash_ui.js"></script>
   </body>
-  </html>
+</html>

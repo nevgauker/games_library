@@ -75,6 +75,7 @@ Project Structure
 - `src/snake.js` – Snake engine (grid, snake movement, food, collisions)
 - `src/snake_ui.js` – Snake canvas rendering and input wiring
 - `src/packdash.js` – Pack & Dash! engine (timer, items, boss, coworkers)
+- `src/packdash_levels.js` – Pack & Dash! level maps and desk items (verified by `npm run check-packdash`)
 - `src/packdash_ui.js` – Pack & Dash! canvas rendering and interactions
 - `src/race.js` – Micro Racer engine (road splines, drift physics, AI, laps, boost pads, ghost recording)
 - `src/race_ui.js` – Micro Racer canvas rendering and controls
