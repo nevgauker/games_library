@@ -31,7 +31,6 @@
   let levelIndex = Math.min(progress.last || 0, LEVELS.length - 1);
   if (!unlocked(levelIndex)) levelIndex = 0;
   const game = new PackDashGame(levelIndex);
-  window.__packdash = game; // handy for debugging / automated checks
   const fx = createPackDashRenderer(canvas, game);
   const sfx = createPackDashAudio();
 
