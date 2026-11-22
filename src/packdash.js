@@ -159,7 +159,7 @@
       this.par = def.par;
       this.silver = def.silver ?? Math.ceil(def.par * 1.3);
       this.score = 0; this.hearts = 0; this.weight = 0;
-      this.dir = null; this.moving = false;
+      this.dir = null; this.fallback = null; this.moving = false; this.walked = 0;
       this.talk = null;          // { kind:'boss'|'coworker', who, phase:'choose'|'chat', t }
       this.player = { x: L.spawn.gx*TILE+2, y: L.spawn.gy*TILE+2, w: TILE-4, h: TILE-4, vx:0, vy:0, face:{ x:1, y:0 } };
       this.elevator = { x: L.elevator.gx*TILE, y: L.elevator.gy*TILE, w: 2*TILE, h: 2*TILE };
@@ -175,7 +175,9 @@
       this.emit('status', def.hint || 'Pack fast, smile often!');
     }
 
-    input(dir){ this.dir = dir || null; }
+    // dir: newest held direction. fallback: the previously held one, used while dir is
+    // blocked so you can "pre-turn" into a gap you're about to pass.
+    input(dir, fallback){ this.dir = dir || null; this.fallback = fallback || null; }
 
     // "Excuse me!" - escape a coworker before the chat starts, or chip away at a boss chat.
     excuse(){
@@ -243,7 +245,7 @@
       t.t -= dt;
       if (t.t > 0) return;
       if (t.kind === 'coworker' && t.phase === 'choose'){
-        t.phase = 'chat'; t.t = COWORKER_CHAT;
+        t.phase = 'chat'; t.t = t.total = COWORKER_CHAT;
         this.hearts += 1;
         this.score += PTS_HEART;
         this.emit('score', this.score);
@@ -347,17 +349,57 @@
 
     stepPlayer(dt){
       const p = this.player;
-      const d = this.talk ? null : this.dir;
-      const s = this.speed;
-      p.vx = d === 'left' ? -s : d === 'right' ? s : 0;
-      p.vy = d === 'up' ? -s : d === 'down' ? s : 0;
-      if (p.vx || p.vy) p.face = { x: Math.sign(p.vx), y: Math.sign(p.vy) };
       const ox = p.x, oy = p.y;
-      p.x = clamp(p.x + p.vx*dt, 0, this.width - p.w);
-      if (this.collidesAny(p)) p.x = ox;
-      p.y = clamp(p.y + p.vy*dt, 0, this.height - p.h);
-      if (this.collidesAny(p)) p.y = oy;
+      p.vx = p.vy = 0;
+      if (!this.talk && this.dir){
+        const dist = this.speed * dt;
+        const fb = this.fallback && this.fallback !== this.dir ? this.fallback : null;
+        // With a fallback held, a direction that leads into a wall tile yields straight away.
+        if (!this.tryMove(this.dir, dist, !!fb) && fb){
+          p.x = ox; p.y = oy;
+          this.tryMove(fb, dist, false);
+        }
+      }
       this.moving = p.x !== ox || p.y !== oy;
+      if (this.moving){
+        p.vx = (p.x - ox) / dt; p.vy = (p.y - oy) / dt;
+        this.walked += Math.hypot(p.x - ox, p.y - oy);
+      }
+    }
+
+    // Move along one axis, sliding the other axis toward the lane (tile row/column)
+    // that is open ahead - so corners and gaps don't snag. Returns true if we got anywhere.
+    tryMove(dir, dist, needOpenLane){
+      const p = this.player;
+      const horiz = dir === 'left' || dir === 'right';
+      const sign = dir === 'left' || dir === 'up' ? -1 : 1;
+      const c = centre(p);
+      const gx = Math.floor(c.x / TILE), gy = Math.floor(c.y / TILE);
+      const perp = horiz ? c.y : c.x;
+      const lane = horiz ? gy : gx;
+      const open = l => horiz ? !this.isWall(gx + sign, l) && !this.isWall(gx, l) : !this.isWall(l, gy + sign) && !this.isWall(l, gy);
+      let target = lane;
+      if (!open(lane)){
+        const side = perp - (lane * TILE + TILE/2) >= 0 ? 1 : -1;
+        if (open(lane + side) && Math.abs(perp - ((lane + side) * TILE + TILE/2)) <= 10) target = lane + side;
+      }
+      if (needOpenLane && !open(target)) return false;
+      const off = target * TILE + TILE/2 - perp;
+      const sx = p.x, sy = p.y;
+      if (off){
+        const step = Math.sign(off) * Math.min(Math.abs(off), dist);
+        if (horiz) p.y += step; else p.x += step;
+        if (this.collidesAny(p)){ if (horiz) p.y -= step; else p.x -= step; }
+      }
+      const mx = p.x, my = p.y;
+      if (horiz) p.x = clamp(p.x + sign * dist, 0, this.width - p.w);
+      else p.y = clamp(p.y + sign * dist, 0, this.height - p.h);
+      if (this.collidesAny(p)){ p.x = mx; p.y = my; }
+      const advanced = p.x !== mx || p.y !== my;
+      // Only sliding sideways against a dead end doesn't count as getting anywhere.
+      if (!advanced && !(open(target) && (p.x !== sx || p.y !== sy))) return false;
+      p.face = horiz ? { x: sign, y: 0 } : { x: 0, y: sign };
+      return true;
     }
 
     stepPacking(dt){

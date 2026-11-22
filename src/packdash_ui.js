@@ -15,6 +15,14 @@
   const game = new PackDashGame(0);
   canvas.width = game.width;
   canvas.height = game.height;
+  const fx = createPackDashRenderer(canvas, game);
+  const sfx = createPackDashAudio();
+  const themeName = () => document.documentElement.getAttribute('data-theme')
+    || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  fx.setTheme(themeName());
+  fx.resize();
+  window.addEventListener('resize', () => fx.resize());
+  window.__packdash = game; // handy for debugging / automated checks
 
   function openModal(title, msg){
     $('modal-title').textContent = title;
@@ -28,7 +36,8 @@
     closeModal();
     keys.length = 0; game.input(null);
     game.restart();
-    acc = 0; bossFlash = 0;
+    fx.reset();
+    acc = 0;
     focusCanvas();
   }
 
@@ -41,18 +50,21 @@
     const next = (root.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
     themeBtn.setAttribute('aria-pressed', String(next === 'light'));
+    fx.setTheme(next);
   });
 
   // input: most recently pressed direction wins, releasing falls back to the previous one
   const keys = [];
   const KEY_DIR = { arrowleft:'left', a:'left', arrowright:'right', d:'right', arrowup:'up', w:'up', arrowdown:'down', s:'down' };
   function dirFor(e){ return KEY_DIR[(e.key || '').toLowerCase()] || KEY_DIR[(e.code || '').replace(/^Key/, '').toLowerCase()]; }
-  function syncDir(){ game.input(keys[keys.length - 1] || null); }
+  function syncDir(){ game.input(keys[keys.length - 1] || null, keys[keys.length - 2] || null); }
 
   document.addEventListener('keydown', e => {
     if (e.target.closest && e.target.closest('input, textarea')) return;
     const k = (e.key || '').toLowerCase();
+    sfx.unlock();
     if (k === 'r'){ e.preventDefault(); restart(); return; }
+    if (k === 'm'){ sfx.setEnabled(!sfx.enabled); return; }
     if (k === ' ' || k === 'e'){
       if (e.target === excuseBtn) return; // the button's own click handles it
       e.preventDefault();
@@ -88,6 +100,28 @@
     statusEl.textContent = m;
     memoryTimer = setTimeout(() => { if (statusEl.textContent === m) statusEl.textContent = ''; }, 2500);
   });
+  const T = game.tile;
+  const pcx = () => game.player.x + game.player.w/2, pcy = () => game.player.y + game.player.h/2;
+  game.on('packStart', () => sfx.packTick());
+  game.on('packed', it => {
+    const x = it.gx*T + T/2, y = it.gy*T + T/2;
+    fx.burst(x, y, '#facc15', 14, 60); fx.burst(x, y, '#34d399', 8, 40);
+    fx.floatText(x, y - 8, '+10', '#facc15');
+    if ((it.data.weight || 1) > 1) fx.floatText(x, y + 4, 'heavy!', '#fb923c', 6);
+    sfx.pack();
+  });
+  game.on('spotted', () => sfx.spotted());
+  game.on('bossTalk', () => { fx.kick(4); sfx.bossTalk(); });
+  game.on('coworkerTalk', () => sfx.coworker());
+  game.on('excuse', ({kind}) => {
+    const lines = kind === 'boss' ? ['Sorry!', 'Gotta run!', 'Totally!', 'Mm-hm!', 'Love that!'] : ['*nod*', 'Later!', '👋'];
+    fx.floatText(pcx() + (Math.random() - 0.5) * 16, pcy() - 14, lines[Math.floor(Math.random() * lines.length)], '#93c5fd', 7);
+    sfx.excuse();
+  });
+  game.on('heart', () => { fx.floatText(pcx(), pcy() - 12, '♥ +25', '#f472b6', 9); fx.burst(pcx(), pcy() - 6, '#f472b6', 8, 30); sfx.heart(); });
+  game.on('elevatorOpen', () => { const e = game.elevator; fx.burst(e.x + e.w/2, e.y + e.h/2, '#4ade80', 16, 50); sfx.ding(); });
+  game.on('win', () => { const e = game.elevator; fx.burst(e.x + e.w/2, e.y + e.h/2, '#facc15', 30, 80); sfx.win(); });
+  game.on('lose', () => sfx.lose());
   game.on('win', r => {
     const stars = '★'.repeat(r.stars) + '☆'.repeat(3 - r.stars);
     openModal(`You’re out! ${stars}`,
@@ -105,85 +139,30 @@
   statusEl.textContent = game.def.hint || '';
 
   // fixed 60 Hz simulation, rendering every frame
-  let last = 0, acc = 0, bossFlash = 0;
+  let last = 0, acc = 0, stepDist = 0, murmurT = 0, lastTick = 0;
   function loop(now){
     if (!last) last = now;
-    acc += Math.min(250, now - last);
+    const frame = Math.min(250, now - last);
+    acc += frame;
     last = now;
     while (acc >= STEP_MS){
+      const walked = game.walked;
       game.step(STEP_MS / 1000);
-      const bossTalk = game.talk && game.talk.kind === 'boss';
-      bossFlash = bossTalk ? Math.min(0.25, bossFlash + 0.02) : Math.max(0, bossFlash - 0.02);
+      if (game.walked < walked) stepDist = 0;
+      stepDist += game.walked - walked;
+      if (stepDist >= 14){ stepDist = 0; sfx.step(); fx.dust(pcx(), game.player.y + game.player.h); }
+      if (game.talk && game.talk.phase === 'chat'){ murmurT -= STEP_MS / 1000; if (murmurT <= 0){ murmurT = 0.16; sfx.murmur(); } }
+      const sec = Math.ceil(game.timeLeft);
+      if (game.state === 'playing' && sec <= 10 && sec !== lastTick){ lastTick = sec; sfx.tick(); }
+      if (sec > 10) lastTick = 0;
       acc -= STEP_MS;
     }
     const canExcuse = game.state === 'playing' && game.talk && (game.talk.kind === 'boss' || game.talk.phase === 'choose');
     excuseBtn.classList.toggle('hidden', !canExcuse);
-    render();
+    fx.render(frame / 1000);
     requestAnimationFrame(loop);
   }
   document.addEventListener('visibilitychange', () => { last = 0; acc = 0; });
-
-  function render(){
-    const TILE = game.tile;
-    ctx.fillStyle = '#0a1224';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.strokeStyle = 'rgba(148,163,184,0.07)'; ctx.lineWidth = 1;
-    for (let x = 0; x <= canvas.width; x += TILE){ ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
-    for (let y = 0; y <= canvas.height; y += TILE){ ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
-
-    // boss vision cones
-    for (const b of game.bosses){
-      const active = !b.talking && b.cooldown <= 0;
-      ctx.fillStyle = active ? (b.alert > 0 ? 'rgba(248,113,113,0.28)' : 'rgba(250,204,21,0.16)') : 'rgba(148,163,184,0.06)';
-      for (const k of b.vision){ ctx.fillRect((k % game.cols) * TILE, Math.floor(k / game.cols) * TILE, TILE, TILE); }
-    }
-
-    ctx.fillStyle = '#18233a';
-    for (const w of game.walls) ctx.fillRect(w.x, w.y, w.w, w.h);
-
-    const e = game.elevator, open = game.itemsLeft === 0;
-    ctx.fillStyle = '#334155'; ctx.fillRect(e.x, e.y, e.w, e.h);
-    ctx.fillStyle = open ? '#4ade80' : '#93c5fd'; ctx.fillRect(e.x+2, e.y+2, e.w-4, 6);
-    ctx.fillStyle = open ? '#22c55e' : '#60a5fa'; ctx.fillRect(e.x+2, e.y+e.h-8, e.w-4, 6);
-
-    for (const it of game.items){
-      if (it.picked) continue;
-      const cx = it.gx*TILE + TILE/2, cy = it.gy*TILE + TILE/2;
-      drawEmoji(it.data.icon, cx, cy, 12);
-      if (it.progress > 0){
-        ctx.strokeStyle = '#34d399'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(cx, cy, 9, -Math.PI/2, -Math.PI/2 + it.progress * Math.PI * 2); ctx.stroke();
-      }
-    }
-
-    for (const c of game.coworkers) drawEmoji('🙂', c.cx, c.cy, 11);
-    for (const b of game.bosses){
-      drawEmoji('👔', b.cx, b.cy, 11);
-      if (b.alert > 0 && !b.talking){ ctx.fillStyle = '#f87171'; ctx.font = 'bold 10px system-ui'; ctx.fillText('!', b.cx, b.cy - 11); }
-    }
-
-    const p = game.player;
-    ctx.fillStyle = '#34d399'; ctx.fillRect(p.x, p.y, p.w, p.h);
-    ctx.fillStyle = '#22c55e'; ctx.fillRect(p.x, p.y, p.w, 3);
-
-    // talk bubble with remaining time
-    const t = game.talk;
-    if (t){
-      const bx = p.x + p.w/2, by = p.y - 6;
-      ctx.fillStyle = 'rgba(15,23,42,0.85)'; ctx.fillRect(bx - 16, by - 8, 32, 6);
-      ctx.fillStyle = t.kind === 'boss' ? '#f87171' : t.phase === 'choose' ? '#facc15' : '#f472b6';
-      ctx.fillRect(bx - 15, by - 7, 30 * Math.max(0, t.t) / (t.phase === 'chat' && t.kind === 'coworker' ? 2 : t.total), 4);
-    }
-
-    if (bossFlash > 0){ ctx.fillStyle = `rgba(59,130,246,${bossFlash.toFixed(3)})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-  }
-
-  function drawEmoji(char, x, y, size){
-    ctx.font = `${size}px system-ui, Apple Color Emoji, Segoe UI Emoji`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(char, x, y);
-  }
 
   requestAnimationFrame(loop);
 })();
