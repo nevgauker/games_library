@@ -16,6 +16,8 @@
   let game = null;
   let input = { left:false, right:false, jump:false };
   let raf = 0;
+  let lastTime = 0, acc = 0;
+  const STEP_MS = 1000 / 60;
   let flashAlpha = 0;
   let audio = { ctx:null, master:null, enabled:true };
 
@@ -26,6 +28,7 @@
     setupInput();
     setupModal();
     setupAudio();
+    buildLevelSelect();
     restartBtn.addEventListener('click', () => reset());
     reset();
   }
@@ -34,17 +37,27 @@
     const idx = Number(levelSelect?.value || 0);
     game = new BackspaceGame(idx);
     ghostsEl.textContent = '0';
-    game.on('update', draw);
     game.on('ghosts', n => ghostsEl.textContent = String(n));
     game.on('win', () => { showWin(); });
     game.on('rewind', () => { flashAlpha = 0.25; playRewind(); });
     cancelAnimationFrame(raf);
-    tick();
+    lastTime = 0; acc = 0;
+    raf = requestAnimationFrame(tick);
   }
 
-  function tick(){
-    game.step(input);
+  // Fixed 60 Hz simulation so speed is the same on every monitor
+  function tick(now){
+    if (!lastTime) lastTime = now;
+    acc += Math.min(250, now - lastTime);
+    lastTime = now;
+    while (acc >= STEP_MS) { game.step(input); acc -= STEP_MS; }
+    draw();
     raf = requestAnimationFrame(tick);
+  }
+
+  function buildLevelSelect(){
+    const levels = window.BACKSPACE_LEVELS || [];
+    levelSelect.innerHTML = levels.map((l, i) => `<option value="${i}">${i + 1}. ${l.name}</option>`).join('');
   }
 
   function setupInput(){
@@ -52,7 +65,9 @@
     const down = e => {
       k[e.code] = true;
       mapKeys();
-      if (e.code === 'Backspace') { e.preventDefault(); game.rewind(); }
+      if (e.code === 'Backspace') e.preventDefault();
+      if (e.repeat) return; // ignore auto-repeat: one press = one action
+      if (e.code === 'Backspace') game.rewind();
       if (e.code === 'KeyR') { e.preventDefault(); reset(); }
     };
     const up = e => { k[e.code] = false; mapKeys(); };
@@ -211,8 +226,12 @@
   function showWin(){
     const max = window.__BACKSPACE_CONST.LEVELS_COUNT || 1;
     const idx = Number(levelSelect?.value || 0);
-    if (idx >= max - 1) { modalNextBtn.disabled = true; modalNextBtn.textContent = 'Next Level ▶'; }
-    else { modalNextBtn.disabled = false; modalNextBtn.textContent = 'Next Level ▶'; }
+    const last = idx >= max - 1;
+    modalNextBtn.classList.toggle('hidden', last);
+    document.getElementById('modal-title').textContent = last ? 'All levels complete!' : 'Level complete!';
+    document.getElementById('modal-message').textContent = last
+      ? `You beat every level using ${game.ghostsUsed} ghost(s) on the final one.`
+      : `Solved with ${game.ghostsUsed} ghost(s).`;
     modalEl.classList.remove('hidden');
   }
   function hideModal(){ modalEl.classList.add('hidden'); }
