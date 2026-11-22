@@ -10,6 +10,7 @@
     <header class="topbar">
       <h1>Backspace</h1>
       <div class="controls">
+        <button id="demo-btn" type="button" title="Watch how this level is solved">▶ Demo</button>
         <button id="levels-btn" type="button">Levels</button>
         <button id="pause-btn" type="button" aria-pressed="false">Pause (P)</button>
         <button id="sound-btn" type="button" aria-pressed="true">Sound: On</button>
@@ -95,6 +96,7 @@
           <li>Echoes replay what you did. They hold plates and you can stand on them.</li>
         </ul>
         <div class="modal-actions">
+          <button id="pause-demo" type="button">Watch demo</button>
           <button id="pause-levels" type="button">Levels</button>
           <button id="pause-restart" type="button">Restart</button>
           <button id="pause-resume" type="button">Resume (P)</button>
@@ -103,6 +105,7 @@
     </div>
 
     <script src="src/backspace_levels.js"></script>
+    <script src="src/backspace_demos.js"></script>
     <script src="src/backspace.js"></script>
     <script src="src/backspace_ui.js"></script>
   </body>

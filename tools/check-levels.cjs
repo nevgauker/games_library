@@ -3,7 +3,8 @@
 //   1. solution    - the level's scripted solution wins (echoes simulated for real),
 //                    within the level's echo limit
 //   2. needs echo  - the goal can NOT be reached without rewinding (no bypass)
-// Usage: node tools/check-levels.cjs [levelNumber] [--strict]   (VERBOSE=1 for timings)
+// Usage: node tools/check-levels.cjs [levelNumber] [--strict] [--write-demos]   (VERBOSE=1 for timings)
+//   --write-demos  also records each solution as an input tape in src/backspace_demos.js
 const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
@@ -116,7 +117,7 @@ function seek(game, done, target, maxFrames = 2400) {
       if (seen.has(k)) continue;
       seen.add(k);
       nodes.push({ s: game.snapshot(), parent: ni, a, n: HOLD, d: node.d + 1 });
-      heap.push(h(game) + (node.d + 1) * 6, nodes.length - 1);
+      heap.push(h(game) + (node.d + 1) * 6 + (a !== node.a ? 3 : 0), nodes.length - 1);
     }
     if (found >= 0) break;
   }
@@ -151,37 +152,55 @@ class Heap {
 function feetTile(g) { return [Math.floor(g.player.x / TILE), Math.floor(g.player.y / TILE)]; }
 const IDLE = { left: false, right: false, jump: false };
 
+// Default demo captions per step type (levels can override with `say`)
+function defaultSay(step) {
+  if (step.to) return 'Move';
+  if (step.ride) return 'Jump onto your echo';
+  if (step.wait) return 'Wait here - your echo will copy this';
+  if (step.rewind) return 'Hold Backspace to rewind';
+  if (step.undo) return 'Press U to undo the last echo';
+  return '';
+}
+
 function runSolution(i) {
   const def = BACKSPACE_LEVELS[i];
   const g = makeGame(i);
   const log = [];
+  // Every input is recorded so the solution can be replayed as an in-game demo
+  const tape = [], captions = [];
+  const play = a => { tape.push((a.left ? 1 : 0) | (a.right ? 2 : 0) | (a.jump ? 4 : 0) | (a.rewind ? 8 : 0)); g.step(a); };
   for (const step of def.solution || []) {
     if (g.win) break;
+    const say = step.say != null ? step.say : defaultSay(step);
+    if (say) captions.push({ f: tape.length, text: say });
     if (step.to) {
       const [tx, ty] = step.to;
       const r = seek(g, gg => gg.win || (gg.player.onGround && feetTile(gg)[0] === tx && feetTile(gg)[1] === ty), [tx * TILE + TILE / 2, ty * TILE + TILE - 1]);
       if (!r.inputs) return { ok: false, msg: `cannot reach ${step.to} (step ${log.length + 1})` };
-      for (const a of r.inputs) g.step(a);
+      for (const a of r.inputs) play(a);
     } else if (step.ride) {
       // stand on top of echo #step.ride
       const e = g.echoes.find(x => x.id === step.ride), es = e && g.echoAt(e, g.T);
       const r = es && seek(g, gg => gg.win || (gg.player.onGround && gg.riding === step.ride), [es.x, es.y - 22]);
       if (!r) return { ok: false, msg: `echo ${step.ride} is not present (step ${log.length + 1})` };
       if (!r.inputs) return { ok: false, msg: `cannot stand on echo ${step.ride} (step ${log.length + 1})` };
-      for (const a of r.inputs) g.step(a);
+      for (const a of r.inputs) play(a);
     } else if (step.wait) {
-      for (let k = 0; k < step.wait && !g.win; k++) g.step(IDLE);
+      for (let k = 0; k < step.wait && !g.win; k++) play(IDLE);
     } else if (step.undo) {
       g.undoEcho();
     } else if (step.rewind) {
-      if (!g.rewind(step.rewind)) return { ok: false, msg: `rewind failed (step ${log.length + 1})` };
+      // Hold rewind like a player would (scrub runs at 3 frames per frame), then release
+      const before = g.echoes.length;
+      for (let k = 0; k < Math.ceil(step.rewind / 3); k++) play({ ...IDLE, rewind: true });
+      play(IDLE);
+      if (g.echoes.length !== before + 1) return { ok: false, msg: `rewind failed (step ${log.length + 1})` };
     }
     log.push(step);
   }
-  // A player also spends time holding rewind (the scrub runs at 3x)
-  const scrub = (def.solution || []).reduce((n, st) => n + (st.rewind ? Math.ceil(st.rewind / 3) : 0), 0);
+  // g.frame includes the time spent holding rewind, like the in-game timer
   return g.win
-    ? { ok: true, frames: g.frame, echoes: g.ghostsUsed, playFrames: g.frame + scrub }
+    ? { ok: true, frames: g.frame, echoes: g.ghostsUsed, playFrames: g.frame, tape, captions }
     : { ok: false, msg: 'solution finished without reaching the goal' };
 }
 
@@ -202,6 +221,11 @@ function checkLevel(i) {
   return { def, solo, sol, problems };
 }
 
+// Input tape as one hex digit per frame (bits: 1 left, 2 right, 4 jump, 8 rewind)
+function encodeTape(tape) { return tape.map(m => m.toString(16)).join(''); }
+const demos = {};
+const WRITE_DEMOS = process.argv.includes('--write-demos');
+
 const numArg = process.argv.slice(2).find(a => /^\d+$/.test(a));
 const only = numArg ? Number(numArg) - 1 : null;
 let failed = 0;
@@ -210,9 +234,20 @@ BACKSPACE_LEVELS.forEach((def, i) => {
   const r = checkLevel(i);
   const ok = r.problems.length === 0;
   if (!ok) failed++;
-  const info = r.sol.ok ? `solved in ${(r.sol.frames / 60).toFixed(1)}s (+scrub ${(r.sol.playFrames / 60).toFixed(1)}s), ${r.sol.echoes} echo(es), par ${def.par ? def.par.time + 's' : '-'}` : '';
+  const info = r.sol.ok ? `solved in ${(r.sol.frames / 60).toFixed(1)}s, ${r.sol.echoes} echo(es), par ${def.par ? def.par.time + 's' : '-'}` : '';
+  if (r.sol.ok) demos[def.name] = { tape: encodeTape(r.sol.tape), captions: r.sol.captions, frames: r.sol.tape.length };
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${String(i + 1).padStart(2)}. ${def.name.padEnd(22)} ${info}`);
   for (const p of r.problems) console.log(`        - ${p}`);
 });
+if (WRITE_DEMOS) {
+  if (failed || only != null) console.log('\nNot writing demos: run all levels and fix failures first.');
+  else {
+    const body = '// Generated by `npm run demos` (tools/check-levels.cjs --write-demos). Do not edit.\n' +
+      '// In-game demos: each level\'s verified solution as a recorded input tape.\n' +
+      '(function(global){\n  global.BACKSPACE_DEMOS = ' + JSON.stringify(demos) + ';\n})(typeof window !== \'undefined\' ? window : globalThis);\n';
+    fs.writeFileSync(path.join(root, 'src/backspace_demos.js'), body);
+    console.log('\nWrote src/backspace_demos.js');
+  }
+}
 console.log(failed ? `\n${failed} level(s) failed` : '\nAll levels OK');
 process.exit(failed ? 1 : 0);

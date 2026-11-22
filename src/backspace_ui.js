@@ -33,6 +33,12 @@
   let pal = null;
   let flashAlpha = 0, flashColor = '#ffffff';
   let lastTimeText = '';
+  // Demo playback: replays a level's verified solution (src/backspace_demos.js)
+  const DEMOS = window.BACKSPACE_DEMOS || {};
+  const DEMO_SEEN_KEY = 'backspace.demoSeen.v1';
+  let demo = null;            // { tape, i, captions, caption, mask, done }
+  // Level-1 coaching
+  let coach = { plateFrames: 0, msg: '', target: null };
 
   // Purely visual state; never affects the simulation
   const fx = { particles: [], shake: 0, squash: 0, doorAnim: {}, plateGlow: {}, bob: 0 };
@@ -67,7 +73,7 @@
     raf = requestAnimationFrame(tick);
   }
 
-  function loadLevel(i){
+  function loadLevel(i, opts = {}){
     levelIndex = Math.max(0, Math.min(LEVELS.length - 1, i));
     safeSet('backspace.last', String(levelIndex));
     game = new BackspaceGame(levelIndex);
@@ -84,9 +90,42 @@
     hideAll();
     setPaused(false);
     lastTime = 0; acc = 0;
+    coach = { plateFrames: 0, msg: '', target: null };
+    demo = null;
+    $('demo-btn').disabled = !DEMOS[def.name];
     resize();
+    // First visit to level 1: show how it's done before handing over control
+    if (levelIndex === 0 && DEMOS[def.name] && !safeGet(DEMO_SEEN_KEY) && !opts.noAutoDemo) startDemo();
   }
-  function restart(){ loadLevel(levelIndex); }
+  function restart(){ loadLevel(levelIndex, { noAutoDemo: true }); }
+
+  function startDemo(){
+    const d = DEMOS[LEVELS[levelIndex].name];
+    if (!d) return;
+    if (game.T > 0 || game.echoes.length) loadLevel(levelIndex, { noAutoDemo: true });
+    hideAll(); paused = false;
+    demo = { tape: d.tape, i: 0, captions: d.captions, caption: '', mask: 0, done: 0 };
+    statusEl.textContent = 'Demo - press any key to skip';
+    $('demo-btn').textContent = '■ Skip demo';
+  }
+  // End the demo and hand the (fresh) level to the player
+  function stopDemo(){
+    if (!demo) return;
+    demo = null;
+    safeSet(DEMO_SEEN_KEY, '1');
+    loadLevel(levelIndex, { noAutoDemo: true });
+    coach.turn = 150;
+    $('demo-btn').textContent = '▶ Demo';
+    statusEl.textContent = 'Your turn! ' + (game.def.hint || '');
+  }
+  function demoInput(){
+    if (demo.done) { demo.done++; if (demo.done > 90) stopDemo(); return { left:false, right:false, jump:false, rewind:false }; }
+    const m = demo.i < demo.tape.length ? parseInt(demo.tape[demo.i], 16) : 0;
+    for (const c of demo.captions) if (c.f === demo.i) { demo.caption = c.text; statusEl.textContent = c.text; }
+    demo.i++; demo.mask = m;
+    if (demo.i >= demo.tape.length) demo.done = 1;
+    return { left: !!(m & 1), right: !!(m & 2), jump: !!(m & 4), rewind: !!(m & 8) };
+  }
 
   function bindGame(){
     game.on('echoes', renderPips);
@@ -125,11 +164,16 @@
     lastTime = now;
     if (paused || anyModalOpen()) acc = 0;
     while (acc >= STEP_MS) {
-      mergeInput();
+      if (demo) {
+        const inp = demoInput();
+        if (!demo) break; // demo just finished and reloaded the level
+        Object.assign(input, inp);
+      } else mergeInput();
       const wasScrub = game.scrubbing;
       game.step(input);
       if (game.scrubbing && (!wasScrub || game.frame % 6 === 0)) sfx.tick(game.scrub / C.MAX_REWIND);
       updateFx();
+      if (!demo && game.def.coach) updateCoach();
       acc -= STEP_MS;
     }
     const tt = (game.frame / 60).toFixed(1);
@@ -282,9 +326,90 @@
       ctx.textAlign = 'left';
     }
 
+    if (demo) drawDemoOverlay();
+    else if (game.def.coach && !game.win) drawCoach();
+
     if (flashAlpha > 0.001) {
       ctx.globalAlpha = flashAlpha; ctx.fillStyle = flashColor; ctx.fillRect(-MARGIN, -MARGIN, view.mapW, view.mapH); ctx.globalAlpha = 1;
       flashAlpha *= 0.9;
+    }
+  }
+
+  // ---------- Demo overlay & coaching ----------
+  function drawDemoOverlay(){
+    const W = game.level.cols * TILE;
+    // badge
+    ctx.font = '700 10px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = pal.echo; roundRect(4, 4, 112, 16, 5);
+    ctx.fillStyle = '#ffffff'; ctx.fillText('DEMO · any key skips', 10, 12.5);
+    // caption
+    if (demo.caption) {
+      ctx.font = '600 12px system-ui, sans-serif';
+      const w = Math.min(W - 16, ctx.measureText(demo.caption).width + 24);
+      const x = (W - w) / 2, y = 26;
+      ctx.fillStyle = pal.tip; ctx.globalAlpha = 0.95; roundRect(x, y, w, 24, 8); ctx.globalAlpha = 1;
+      ctx.fillStyle = pal.text; ctx.textAlign = 'center'; ctx.fillText(demo.caption, W / 2, y + 12.5, W - 28); ctx.textAlign = 'left';
+    }
+    // keys being pressed
+    const m = demo.mask, keysShown = [['←', m & 1], ['→', m & 2], ['Space', m & 4], ['⌫ Backspace', m & 8]];
+    ctx.font = '600 10px system-ui, sans-serif';
+    let x = W - 4;
+    for (let i = keysShown.length - 1; i >= 0; i--) {
+      const [label, on] = keysShown[i];
+      const w = ctx.measureText(label).width + 12; x -= w;
+      ctx.globalAlpha = on ? 1 : 0.35;
+      ctx.fillStyle = on ? (label.startsWith('⌫') ? pal.echo : pal.goal) : pal.tip; roundRect(x, 4, w, 16, 4);
+      ctx.fillStyle = on ? '#ffffff' : pal.text; ctx.fillText(label, x + 6, 12.5);
+      x -= 4;
+    }
+    ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
+  }
+
+  // Step-by-step prompts for the tutorial level, reacting to what the player does
+  function updateCoach(){
+    if (game.win) return;
+    const p = game.player, level = game.level;
+    const tile = (level.grid[Math.floor(p.y / TILE)] || [])[Math.floor(p.x / TILE)];
+    const onPlate = !!C.PLATE[tile];
+    coach.plateFrames = onPlate && !game.scrubbing ? coach.plateFrames + 1 : (game.scrubbing ? coach.plateFrames : 0);
+    const find = test => { for (let y = 0; y < level.rows; y++) for (let x = 0; x < level.cols; x++) if (test(level.grid[y][x])) return [x, y]; return null; };
+    let msg, target = null;
+    if (game.scrubbing) {
+      msg = game.scrub < 90 ? 'Keep holding Backspace... time is running backwards' : 'Now let go of Backspace!';
+    } else if (!game.echoes.length) {
+      if (!onPlate) { msg = 'Walk onto the green plate'; target = find(c => !!C.PLATE[c]); }
+      else if (coach.plateFrames < 50) msg = 'The door opens while you stand here... but closes when you leave';
+      else if (coach.plateFrames < 100) msg = 'Stay on the plate a little longer';
+      else msg = 'Now HOLD Backspace (or X) to rewind time';
+    } else if (game.activeEchoes() && game.power.a) {
+      msg = 'Your echo is holding the plate - run through the door!'; target = find(c => c === 'G');
+    } else if (game.activeEchoes()) {
+      // Will the echo actually reach a plate during the rest of its replay?
+      const e = game.echoes[game.echoes.length - 1], k = game.T - e.start;
+      const willPress = e.path.slice(Math.max(0, k)).some(s => C.PLATE[(level.grid[Math.floor(s.y / TILE)] || [])[Math.floor(s.x / TILE)]]);
+      msg = willPress ? 'Your echo is replaying your moves - watch it step onto the plate'
+        : 'Your echo never reaches the plate. Press U to undo it - stand ON the plate before rewinding';
+    } else {
+      msg = 'Your echo has finished. Press U to undo it, stand on the plate longer, then rewind again';
+    }
+    coach.target = target;
+    if (coach.turn > 0) { coach.turn--; if (!game.echoes.length && !onPlate) msg = 'Your turn! ' + msg; }
+    if (msg !== coach.msg) { coach.msg = msg; statusEl.textContent = msg; }
+  }
+  function drawCoach(){
+    if (!coach.msg) return;
+    const W = game.level.cols * TILE;
+    ctx.font = '600 12px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    const w = Math.min(W - 16, ctx.measureText(coach.msg).width + 24), x = (W - w) / 2, y = 26;
+    ctx.fillStyle = pal.tip; ctx.globalAlpha = 0.95; roundRect(x, y, w, 24, 8); ctx.globalAlpha = 1;
+    ctx.fillStyle = pal.text; ctx.textAlign = 'center'; ctx.fillText(coach.msg, W / 2, y + 12.5, W - 28); ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    if (coach.target) {
+      // bouncing arrow over the next thing to go to
+      const [tx, ty] = coach.target, b = reducedMotion ? 0 : Math.abs(Math.sin(fx.bob * 1.5)) * 5;
+      const cx = tx * TILE + TILE / 2, cy = ty * TILE - 6 - b;
+      ctx.fillStyle = pal.goal;
+      ctx.beginPath(); ctx.moveTo(cx - 7, cy - 9); ctx.lineTo(cx + 7, cy - 9); ctx.lineTo(cx, cy); ctx.closePath(); ctx.fill();
     }
   }
 
@@ -477,6 +602,10 @@
     };
     window.addEventListener('keydown', e => {
       if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+      if (demo) { // any key skips the demo
+        if (/^(Shift|Control|Alt|Meta)/.test(e.code) || e.repeat) return;
+        e.preventDefault(); stopDemo(); return;
+      }
       const modal = openModal();
       if (e.code === 'Escape') { e.preventDefault(); if (modal === pauseModal || !modal) togglePause(); else if (modal === levelsModal) closeLevels(); return; }
       if (modal === winModal) {
@@ -503,6 +632,7 @@
       const key = btn.dataset.key;
       const on = e => {
         e.preventDefault();
+        if (demo) { stopDemo(); return; }
         if (key === 'undo') { game.undoEcho(); return; }
         touch[key] = true; btn.classList.add('on');
         try { btn.setPointerCapture(e.pointerId); } catch {}
@@ -529,6 +659,9 @@
     $('pause-resume').addEventListener('click', () => setPaused(false));
     $('pause-restart').addEventListener('click', restart);
     $('pause-levels').addEventListener('click', openLevels);
+    $('demo-btn').addEventListener('click', e => { if (demo) stopDemo(); else startDemo(); e.currentTarget.blur(); });
+    $('pause-demo').addEventListener('click', () => { setPaused(false); startDemo(); });
+    canvas.addEventListener('pointerdown', () => { if (demo) stopDemo(); });
     for (const m of [winModal, levelsModal, pauseModal]) {
       m.addEventListener('click', e => { if (e.target === m && m !== winModal) { if (m === levelsModal) closeLevels(); else setPaused(false); } });
     }
@@ -575,6 +708,7 @@
   function onWin(){
     sfx.win();
     burst(game.player.x, game.player.y - 10, 28, pal.goal, 3);
+    if (demo) { demo.caption = 'Solved! Now you try.'; statusEl.textContent = demo.caption; return; } // demos never count
     const def = game.def, frames = game.frame, echoes = game.ghostsUsed;
     const stars = starsFor(def, frames, echoes);
     const prev = progress[def.name];

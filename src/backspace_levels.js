@@ -6,13 +6,14 @@
 // Every level is verified by `npm run check-levels`: the goal must be
 // reachable, impossible without rewinding, and `solution` must win.
 // Solution steps: {to:[col,row]} walk/jump there, {ride:n} stand on echo n,
-// {wait:frames}, {rewind:frames}, {undo:true}.
+// {wait:frames}, {rewind:frames}, {undo:true}. `say` is the in-game demo caption;
+// run `npm run demos` after changing a level to re-record its demo.
 (function(global){
   global.BACKSPACE_LEVELS = [
     {
       name: 'First Echo',
       hint: 'Stand on the plate, then hold Backspace to rewind. Your echo keeps holding it.',
-      tips: [ { at:[8,5], text:'Stand here' }, { at:[3,4], text:'Hold Backspace to rewind' } ],
+      coach: true, // step-by-step prompts that react to what the player does
       echoes: 1, par: { echoes: 1, time: 9 },
       map: [
         "########################",
@@ -25,7 +26,12 @@
         "#.P.....a..A........G..#",
         "########################",
       ],
-      solution: [ {to:[8,7]}, {wait:130}, {rewind:120}, {to:[20,7]} ],
+      solution: [
+        {to:[8,7], say:'Walk onto the green plate - the door opens!'},
+        {wait:130, say:'...but it shuts if you step off. Stay on the plate for a moment.'},
+        {rewind:120, say:'Now HOLD Backspace - time runs backwards.'},
+        {to:[20,7], say:'Let go! Your echo replays you standing on the plate. Run!'},
+      ],
     },
     {
       name: 'Ledge',
@@ -42,7 +48,12 @@
         "#P.#.......A........G..#",
         "########################",
       ],
-      solution: [ {to:[5,5]}, {wait:130}, {rewind:120}, {to:[20,7]} ],
+      solution: [
+        {to:[5,5], say:'Jump up to the plate.'},
+        {wait:130, say:'Stand on it for a couple of seconds.'},
+        {rewind:120, say:'Hold Backspace to rewind.'},
+        {to:[20,7], say:'Your echo holds the plate - race to the door!'},
+      ],
     },
     {
       name: 'Long Way Down',
@@ -59,7 +70,12 @@
         "#..G......A..........P.#",
         "########################",
       ],
-      solution: [ {to:[15,3]}, {wait:130}, {rewind:120}, {to:[3,7]} ],
+      solution: [
+        {to:[15,3], say:'Climb up to the plate.'},
+        {wait:130, say:'Wait - the longer you stay, the longer your echo can hold it.'},
+        {rewind:120, say:'Hold Backspace to rewind.'},
+        {to:[3,7], say:'Drop down and run left before your echo runs out!'},
+      ],
     },
     {
       name: 'Stepping Stone',
@@ -77,7 +93,13 @@
         "#.P............#########",
         "########################",
       ],
-      solution: [ {to:[14,7]}, {wait:50}, {rewind:40}, {ride:1}, {to:[19,4]} ],
+      solution: [
+        {to:[14,7], say:'Walk up to the wall.'},
+        {wait:50, say:'Stand still for a moment.'},
+        {rewind:40, say:'Rewind - your echo will stand right here.'},
+        {ride:1, say:'Jump onto the head of your echo.'},
+        {to:[19,4], say:'Now jump again - up onto the ledge!'},
+      ],
     },
     {
       name: 'Two Hands',
@@ -94,7 +116,15 @@
         "#.P.a.....b....A..B..G.#",
         "########################",
       ],
-      solution: [ {to:[4,7]}, {wait:310}, {rewind:300}, {to:[10,7]}, {wait:170}, {rewind:160}, {to:[21,7]} ],
+      solution: [
+        {to:[4,7], say:'Stand on the green plate.'},
+        {wait:310, say:'Wait the full 5 seconds.'},
+        {rewind:300, say:'Rewind all the way - echo #1 holds green.'},
+        {to:[10,7], say:'Now go to the yellow plate.'},
+        {wait:170, say:'Wait here...'},
+        {rewind:160, say:'Rewind again - echo #2 holds yellow.'},
+        {to:[21,7], say:'Both doors open. Go!'},
+      ],
     },
     {
       name: 'Lingering',
@@ -112,7 +142,12 @@
         "#1P.................A.G#",
         "########################",
       ],
-      solution: [ {to:[1,7]}, {wait:70}, {rewind:60}, {to:[22,7]} ],
+      solution: [
+        {to:[1,7], say:'Step on the timed plate.'},
+        {wait:70, say:'Stay a moment.'},
+        {rewind:60, say:'Rewind: your echo presses it again later, so it stays open longer.'},
+        {to:[22,7], say:'Sprint for the door!'},
+      ],
     },
     {
       name: 'Spike Climb',
@@ -130,7 +165,12 @@
         "#^^^^^^^^^^^^^^^^^^.a.P#",
         "########################",
       ],
-      solution: [ {to:[20,8]}, {wait:310}, {rewind:300}, {to:[1,2]} ],
+      solution: [
+        {to:[20,8], say:'Stand on the plate.'},
+        {wait:310, say:'Wait the full 5 seconds - the climb takes a while.'},
+        {rewind:300, say:'Rewind all the way.'},
+        {to:[1,2], say:'Climb the platforms. Avoid the spikes!'},
+      ],
     },
     {
       name: 'Crossfire',
@@ -148,7 +188,15 @@
         ">..b..P...........B..G.#",
         "########################",
       ],
-      solution: [ {to:[1,7]}, {wait:310}, {rewind:300}, {to:[3,7]}, {wait:210}, {rewind:200}, {to:[21,7]} ],
+      solution: [
+        {to:[1,7], say:'Stand right in front of the laser (it is off for now).'},
+        {wait:310, say:'Wait - this echo will be your shield.'},
+        {rewind:300, say:'Rewind.'},
+        {to:[3,7], say:'Step on the plate - the laser fires, but your echo blocks it.'},
+        {wait:210, say:'Hold the plate...'},
+        {rewind:200, say:'Rewind again - echo #2 keeps the plate down.'},
+        {to:[21,7], say:'Run through the shadow of your shield!'},
+      ],
     },
     {
       name: 'Tower',
@@ -165,7 +213,16 @@
         "#.P............#########",
         "########################",
       ],
-      solution: [ {to:[14,7]}, {wait:310}, {rewind:300}, {ride:1}, {wait:150}, {rewind:120}, {ride:2}, {to:[19,3]} ],
+      solution: [
+        {to:[14,7], say:'Go to the wall.'},
+        {wait:310, say:'Wait the full 5 seconds.'},
+        {rewind:300, say:'Rewind - echo #1 stands here.'},
+        {ride:1, say:'Jump onto echo #1.'},
+        {wait:150, say:'Stand on its head...'},
+        {rewind:120, say:'Rewind - echo #2 stands on top of echo #1.'},
+        {ride:2, say:'Climb onto echo #2.'},
+        {to:[19,3], say:'And up to the top!'},
+      ],
     },
     {
       name: 'Laser Gate',
@@ -182,7 +239,13 @@
         ">..2.P..........B.....G#",
         "########################",
       ],
-      solution: [ {to:[1,7]}, {wait:310}, {rewind:300}, {to:[3,7]}, {to:[22,7]} ],
+      solution: [
+        {to:[1,7], say:'Stand in front of the laser while it is off.'},
+        {wait:310, say:'Wait - this echo will shield you.'},
+        {rewind:300, say:'Rewind.'},
+        {to:[3,7], say:'Tap the timed plate - the laser fires into your echo.'},
+        {to:[22,7], say:'Three seconds - run!'},
+      ],
     },
     {
       name: 'Relay',
@@ -199,7 +262,15 @@
         "#.P.a....b..3.A..B..C.G#",
         "########################",
       ],
-      solution: [ {to:[4,7]}, {wait:310}, {rewind:300}, {to:[9,7]}, {wait:200}, {rewind:190}, {to:[22,7]} ],
+      solution: [
+        {to:[4,7], say:'Green plate first.'},
+        {wait:310, say:'Wait the full 5 seconds.'},
+        {rewind:300, say:'Rewind - echo #1 holds green.'},
+        {to:[9,7], say:'Yellow plate next.'},
+        {wait:200, say:'Wait...'},
+        {rewind:190, say:'Rewind - echo #2 holds yellow.'},
+        {to:[22,7], say:'Run over the timed plate - it keeps the blue door open.'},
+      ],
     },
     {
       name: 'Clockwork',
@@ -216,7 +287,16 @@
         "#a.P^^^^^^^....#########",
         "########################",
       ],
-      solution: [ {to:[1,7]}, {wait:310}, {rewind:300}, {to:[14,7]}, {wait:70}, {rewind:60}, {ride:2}, {to:[21,4]} ],
+      solution: [
+        {to:[1,7], say:'Hold the plate.'},
+        {wait:310, say:'Wait the full 5 seconds.'},
+        {rewind:300, say:'Rewind - echo #1 keeps the door open.'},
+        {to:[14,7], say:'Cross the spikes using the platform.'},
+        {wait:70, say:'Stand by the ledge.'},
+        {rewind:60, say:'Rewind - echo #2 becomes a step.'},
+        {ride:2, say:'Jump onto echo #2.'},
+        {to:[21,4], say:'Up, through the door, done!'},
+      ],
     },
   ];
 })(typeof window !== 'undefined' ? window : globalThis);

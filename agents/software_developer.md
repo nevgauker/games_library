@@ -13,7 +13,7 @@ Project Structure
 - `memory.html` — Memory game UI; logic in `src/game.js`, glue in `src/main.js`.
 - `checkers.html` — Checkers page; core in `src/checkers.js`, UI in `src/checkers_ui.js`.
 - `utopia.html` — Tiny Utopia page; engine in `src/utopia.js`, UI/audio in `src/utopia_ui.js`.
-- `backspace.html` — Backspace platformer; levels in `src/backspace_levels.js`, timeline engine in `src/backspace.js` (no DOM; also runs in Node), UI/render/audio in `src/backspace_ui.js`. `npm run check-levels` (tools/check-levels.cjs) searches every level with the real engine: the scripted solution must win within the echo limit and par, and the level must be unbeatable without rewinding.
+- `backspace.html` — Backspace platformer; levels in `src/backspace_levels.js`, timeline engine in `src/backspace.js` (no DOM; also runs in Node), UI/render/audio in `src/backspace_ui.js`. `npm run check-levels` (tools/check-levels.cjs) searches every level with the real engine: the scripted solution must win within the echo limit and par, and the level must be unbeatable without rewinding. `npm run demos` re-records each verified solution as an input tape in `src/backspace_demos.js` (played by the in-game ▶ Demo button, captions come from each solution step's `say`); rerun it whenever a level changes.
 - `src/style.css` — Shared styles including themes, layout, components, and per‑game sections.
 - `README.md` — Usage, structure, extension notes.
 
