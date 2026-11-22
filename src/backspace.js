@@ -9,9 +9,12 @@
 (function(global){
   const TILE = 24;
   const GRAV = 0.45;
-  const MAX_FALL = 10;
-  const SPEED = 1.3;
-  const JUMP = -6.8;
+  const MAX_FALL = 9;
+  const SPEED = 2.1;            // max run speed (px/frame)
+  const ACCEL = 0.35, AIR_ACCEL = 0.22;
+  const FRICTION = 0.4, AIR_DRAG = 0.08;
+  const JUMP = -7.0;            // ~2.2 tiles at full height
+  const JUMP_CUT = 0.45;        // releasing jump early keeps this much upward speed
   const COYOTE_FRAMES = 6;      // jump forgiveness after leaving ground
   const JUMP_BUFFER_FRAMES = 6; // jump queued before landing
   const HALF_W = 6, BODY_H = 21; // hitbox: x±6, y-21..y (y = feet)
@@ -57,6 +60,7 @@
       this.framesSinceGrounded = COYOTE_FRAMES + 1;
       this.jumpBuffer = 0;
       this.jumpHeld = false;
+      this.jumpRising = false;
       this.updatePower();
       this.emit('echoes', this.echoesLeft());
     }
@@ -149,16 +153,28 @@
         if (a && b) moveX(this.level, p, b.x - a.x, this.power);
       }
 
-      // Horizontal input
+      // Horizontal input with acceleration / friction
       const desired = (input.right?1:0) - (input.left?1:0);
-      p.vx = desired * SPEED;
-      if (desired) p.face = desired;
+      const grounded = p.onGround;
+      if (desired) {
+        p.face = desired;
+        const a = grounded ? ACCEL : AIR_ACCEL;
+        // turning around is snappier than speeding up
+        const boost = Math.sign(p.vx) !== desired && p.vx !== 0 ? 2 : 1;
+        p.vx = clamp(p.vx + desired * a * boost, -SPEED, SPEED);
+      } else {
+        const f = grounded ? FRICTION : AIR_DRAG;
+        p.vx = Math.abs(p.vx) <= f ? 0 : p.vx - Math.sign(p.vx) * f;
+      }
       const canJump = p.onGround || this.framesSinceGrounded <= COYOTE_FRAMES;
       if (this.jumpBuffer > 0 && canJump) this.doJump();
+      // Variable jump height: let go early for a short hop
+      if (!input.jump && p.vy < -2 && this.jumpRising) { p.vy *= JUMP_CUT; this.jumpRising = false; }
+      if (p.vy >= 0) this.jumpRising = false;
       p.vy = Math.min(MAX_FALL, p.vy + GRAV);
 
       // Move + collide with tiles
-      const prevFeet = p.y;
+      const prevFeet = p.y, wasGround = grounded, fallSpeed = p.vy;
       moveX(this.level, p, p.vx, this.power);
       moveY(this.level, p, this.power);
 
@@ -175,6 +191,7 @@
         }
       }
 
+      if (p.onGround && !wasGround && this.framesSinceGrounded > 2) this.emit('land', fallSpeed);
       if (p.onGround) this.framesSinceGrounded = 0; else this.framesSinceGrounded++;
       if (p.onGround && this.jumpBuffer > 0) this.doJump();
 
@@ -200,6 +217,7 @@
       this.player.onGround = false;
       this.framesSinceGrounded = COYOTE_FRAMES + 1;
       this.jumpBuffer = 0;
+      this.jumpRising = true;
       this.riding = null;
       this.emit('jump');
     }
@@ -216,7 +234,7 @@
       this.history.length = this.T + 1;
       const s = this.history[this.T];
       Object.assign(this.player, { x: s.x, y: s.y, vx: 0, vy: 0, onGround: s.onGround, face: s.face });
-      this.jumpBuffer = 0; this.framesSinceGrounded = s.onGround ? 0 : COYOTE_FRAMES + 1;
+      this.jumpBuffer = 0; this.jumpRising = false; this.framesSinceGrounded = s.onGround ? 0 : COYOTE_FRAMES + 1;
       this.riding = null;
       this.updatePower();
       this.emit('echoes', this.echoesLeft());
@@ -238,22 +256,23 @@
     // Compact state for solvers/tests. History is kept by reference; callers manage it.
     snapshot(){
       return { p: { ...this.player }, T: this.T, e: this.echoes.slice(), n: this.nextEchoId, pw: { ...this.power },
-        f: this.framesSinceGrounded, b: this.jumpBuffer, jh: this.jumpHeld, r: this.riding, fr: this.frame, w: this.win };
+        f: this.framesSinceGrounded, b: this.jumpBuffer, jh: this.jumpHeld, jr: this.jumpRising, r: this.riding, fr: this.frame, w: this.win };
     }
     restore(s){
       this.player = { ...s.p }; this.T = s.T; this.echoes = s.e.slice(); this.nextEchoId = s.n; this.power = { ...s.pw };
-      this.framesSinceGrounded = s.f; this.jumpBuffer = s.b; this.jumpHeld = s.jh; this.riding = s.r; this.frame = s.fr; this.win = s.w;
+      this.framesSinceGrounded = s.f; this.jumpBuffer = s.b; this.jumpHeld = s.jh; this.jumpRising = s.jr; this.riding = s.r; this.frame = s.fr; this.win = s.w;
       this.scrub = 0;
     }
     stateKey(){
       const p = this.player;
-      return [Math.round(p.x*2), Math.round(p.y*2), Math.round(p.vy*10), p.onGround?1:0,
+      return [Math.round(p.x*2), Math.round(p.y*2), Math.round(p.vx*10), Math.round(p.vy*10), p.onGround?1:0, this.jumpRising?1:0,
         Math.min(this.framesSinceGrounded, COYOTE_FRAMES+1), this.jumpBuffer, this.jumpHeld?1:0,
         this.power.a?1:0, this.power.b?1:0, this.power.c?1:0, this.riding||0].join();
     }
   }
 
-  function recordOf(p){ return { x: p.x, y: p.y, face: p.face, onGround: p.onGround, vy: p.vy }; }
+  function recordOf(p){ return { x: p.x, y: p.y, face: p.face, onGround: p.onGround, vx: p.vx, vy: p.vy }; }
+  function clamp(v, a, b){ return v < a ? a : v > b ? b : v; }
 
   function parseLevel(rows){
     const grid = rows.map(r=>r.split(""));

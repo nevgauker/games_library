@@ -6,21 +6,24 @@
 // Usage: node tools/check-levels.cjs [levelNumber] [--strict]   (VERBOSE=1 for timings)
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
-
 const root = path.join(__dirname, '..');
-const ctx = { window: {}, console };
-vm.createContext(ctx);
+// Load the browser scripts into this realm (a vm sandbox makes every global
+// lookup such as Math.floor ~30x slower, which dominates the search).
+const win = {};
 for (const f of ['src/backspace_levels.js', 'src/backspace.js']) {
-  vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx, { filename: f });
+  new Function('window', fs.readFileSync(path.join(root, f), 'utf8') + `
+//# sourceURL=${f}`)(win);
 }
-const { BackspaceGame, BACKSPACE_LEVELS } = ctx.window;
-const C = ctx.window.__BACKSPACE_CONST;
+const { BackspaceGame, BACKSPACE_LEVELS } = win;
+const C = win.__BACKSPACE_CONST;
 const TILE = C.TILE;
 
 const ACTIONS = [];
 for (const h of [-1, 0, 1]) for (const j of [false, true]) ACTIONS.push({ left: h < 0, right: h > 0, jump: j });
 const MAX_NODES = 1500000;
+// Inputs are chosen every HOLD frames (~67 ms) - finer than any human needs and
+// it keeps the search space manageable.
+const HOLD = 4;
 
 function makeGame(i, mutate) {
   const g = new BackspaceGame(i);
@@ -28,22 +31,19 @@ function makeGame(i, mutate) {
   return g;
 }
 
-// Breadth-first search over inputs from the game's current state until `done(game)`.
-// Returns the list of inputs, or null. Echo playback is part of the simulated state.
-// Coarse key (default): merges states within ~1px. Paths stay exact because every
+// Coarse key (default): merges states within ~3px. Paths stay exact because every
 // node keeps its real snapshot, but a pixel-perfect trick could be missed.
 // Pass --strict to use the exact key for the reachability/bypass proofs (slow).
 function coarseKey(g) {
   const p = g.player;
-  return [Math.round(p.x), Math.round(p.y), Math.round(p.vy * 2), p.onGround ? 1 : 0,
-    Math.min(g.framesSinceGrounded, 7), g.jumpBuffer > 0 ? 1 : 0, g.jumpHeld ? 1 : 0,
+  const air = !p.onGround;
+  return [Math.round(p.x / 3), Math.round(p.y / 3), Math.round(p.vx), air ? Math.round(p.vy / 1.5) : 0, air ? 1 : 0,
+    air && g.jumpRising ? 1 : 0, air ? Math.min(g.framesSinceGrounded, 7) : 0, g.jumpHeld ? 1 : 0,
     g.power.a ? 1 : 0, g.power.b ? 1 : 0, g.power.c ? 1 : 0, g.riding || 0, g.timerKey ? g.timerKey() : ''].join();
 }
-// Keys are built here rather than via game.stateKey(): calling into the vm
-// context per state is ~100x slower.
 function fineKey(g) {
   const p = g.player;
-  return [Math.round(p.x * 2), Math.round(p.y * 2), Math.round(p.vy * 10), p.onGround ? 1 : 0,
+  return [Math.round(p.x * 2), Math.round(p.y * 2), Math.round(p.vx * 10), Math.round(p.vy * 10), p.onGround ? 1 : 0, g.jumpRising ? 1 : 0,
     Math.min(g.framesSinceGrounded, 7), g.jumpBuffer, g.jumpHeld ? 1 : 0,
     g.power.a ? 1 : 0, g.power.b ? 1 : 0, g.power.c ? 1 : 0, g.riding || 0, g.timerKey ? g.timerKey() : ''].join();
 }
@@ -51,35 +51,42 @@ function fineKey(g) {
 const STRICT = process.argv.includes('--strict');
 const proofKey = STRICT ? fineKey : coarseKey;
 
+// Breadth-first search over inputs from the game's current state until `done(game)`.
+// Returns per-frame inputs, or null. Echo playback is part of the simulated state.
+// `capped` means the node budget ran out, so "not found" proves nothing.
 function search(game, done, maxFrames = 2400, keyFn = proofKey) {
   const start = game.snapshot();
   const keepHistory = game.history;
   const nodes = [{ s: start, parent: -1, a: null }];
   const seen = new Set([keyFn(game)]);
   let frontier = [0], depth = 0, found = -1;
-  outer: while (frontier.length && depth < maxFrames) {
+  let capped = false;
+  outer: while (frontier.length && depth * HOLD < maxFrames) {
     const next = [];
     for (const ni of frontier) {
       for (const a of ACTIONS) {
         game.restore(nodes[ni].s); game.history = [];
-        game.step(a);
-        if (done(game)) { nodes.push({ s: null, parent: ni, a }); found = nodes.length - 1; break outer; }
+        let hit = 0;
+        for (let f = 1; f <= HOLD; f++) { game.step(a); if (done(game)) { hit = f; break; } if (game.dead) break; }
+        if (hit) { nodes.push({ s: null, parent: ni, a, n: hit }); found = nodes.length - 1; break outer; }
         if (game.dead) continue;
         const k = keyFn(game);
         if (seen.has(k)) continue;
         seen.add(k);
-        nodes.push({ s: game.snapshot(), parent: ni, a });
+        nodes.push({ s: game.snapshot(), parent: ni, a, n: HOLD });
         next.push(nodes.length - 1);
-        if (nodes.length > MAX_NODES) break outer;
+        if (nodes.length > MAX_NODES) { capped = true; break outer; }
       }
     }
     frontier = next; depth++;
   }
   game.restore(start); game.history = keepHistory;
-  if (found < 0) return { inputs: null, explored: nodes.length };
+  if (found < 0) return { inputs: null, explored: nodes.length, capped };
+  const chunks = [];
+  for (let i = found; i > 0; i = nodes[i].parent) chunks.push(nodes[i]);
   const inputs = [];
-  for (let i = found; i > 0; i = nodes[i].parent) inputs.push(nodes[i].a);
-  return { inputs: inputs.reverse(), explored: nodes.length };
+  for (const c of chunks.reverse()) for (let f = 0; f < c.n; f++) inputs.push(c.a);
+  return { inputs, explored: nodes.length, capped };
 }
 
 function feetTile(g) { return [Math.floor(g.player.x / TILE), Math.floor(g.player.y / TILE)]; }
@@ -113,7 +120,6 @@ function runSolution(i) {
 function checkLevel(i) {
   const def = BACKSPACE_LEVELS[i];
   const isDoor = c => /[A-CD]/.test(c);
-  const isSwitch = c => /[a-cS1-3]/.test(c);
   const T0 = Date.now(); const lap = l => process.env.VERBOSE && console.log(`   ${l} ${Date.now() - T0}ms`);
   const open = search(makeGame(i, c => isDoor(c) ? '.' : c), g => g.win);
   lap('open');
@@ -122,11 +128,11 @@ function checkLevel(i) {
   const sol = runSolution(i);
   lap('solution');
   const problems = [];
-  if (!open.inputs) problems.push('goal unreachable even with all doors open');
+  if (!open.inputs) problems.push(open.capped ? 'search budget ran out (inconclusive)' : 'goal unreachable even with all doors open');
+  if (!solo.inputs && solo.capped) problems.push('bypass search ran out of budget (inconclusive)');
   if (solo.inputs) problems.push(`beatable without rewinding (${solo.inputs.length} frames) - mechanic bypass`);
   if (!sol.ok) problems.push('solution: ' + sol.msg);
   if (sol.ok && def.echoes != null && sol.echoes > def.echoes) problems.push(`solution uses ${sol.echoes} echoes, limit is ${def.echoes}`);
-  void isSwitch;
   return { def, open, solo, sol, problems };
 }
 
