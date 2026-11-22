@@ -6,47 +6,109 @@
     <title>Pack & Dash!</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
-  <body>
+  <body class="pd-page">
     <header class="topbar">
       <h1>Pack &amp; Dash!</h1>
       <div class="controls">
+        <button id="floors-btn" type="button">Floors</button>
+        <button id="pause-btn" type="button" aria-pressed="false">Pause (P)</button>
+        <button id="sound-btn" type="button" aria-pressed="true">Sound: On</button>
         <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
         <button id="restart-btn" type="button">Restart (R)</button>
       </div>
     </header>
 
     <main>
-      <section class="hud">
-        <div>Score: <span id="score">0</span></div>
-        <div>Time: <span id="time">60</span>s</div>
-        <div>Items: <span id="items-left">0</span></div>
-        <div>Hearts: <span id="hearts">0</span></div>
-        <div id="status" aria-live="polite"></div>
+      <section class="hud pd-hud" aria-label="Status">
+        <div class="pd-floor">Floor <span id="floor-num">1</span> · <strong id="floor-name">-</strong></div>
+        <div class="pd-timer" title="Time left. Finish before the marker for 3 stars.">
+          <div class="pd-timer-bar"><div id="timer-fill" class="pd-timer-fill"></div><div id="timer-par" class="pd-timer-par"></div></div>
+          <span><span id="time" class="pd-num">0</span>s</span>
+        </div>
+        <div id="checklist" class="pd-checklist" aria-label="Items to pack"></div>
+        <div class="pd-stat" title="Hearts from small talk">♥ <span id="hearts" class="pd-num">0</span></div>
+        <div class="pd-stat" title="Walking speed (heavier box = slower)">👟 <span id="speed" class="pd-num">100</span>%</div>
+        <div class="pd-stat">Score <span id="score" class="pd-num">0</span></div>
       </section>
+
       <section class="backspace-wrap">
-        <div class="pd-stage">
+        <div id="stage" class="pd-stage">
           <canvas id="game" width="384" height="320" aria-label="Office floor"></canvas>
           <button id="pd-excuse" class="pd-excuse hidden" type="button">🏃 Excuse me! <kbd>Space</kbd></button>
+          <div id="start-card" class="pd-card hidden" role="dialog" aria-labelledby="start-title">
+            <p class="pd-card-kicker">Floor <span id="start-num">1</span></p>
+            <h2 id="start-title">-</h2>
+            <p id="start-hint"></p>
+            <p id="start-new" class="pd-new hidden"></p>
+            <p class="pd-card-meta">Par <strong id="start-par">-</strong>s · limit <span id="start-limit">-</span>s · <span id="start-best"></span></p>
+            <button id="start-btn" type="button">Start <kbd>any key</kbd></button>
+          </div>
         </div>
       </section>
+      <p id="status" class="pd-status" aria-live="polite"></p>
+
+      <div id="touch" class="pd-touch" aria-label="Touch controls">
+        <div class="pd-dpad">
+          <button type="button" data-dir="up" class="up" aria-label="Up">▲</button>
+          <button type="button" data-dir="left" class="left" aria-label="Left">◀</button>
+          <button type="button" data-dir="right" class="right" aria-label="Right">▶</button>
+          <button type="button" data-dir="down" class="down" aria-label="Down">▼</button>
+        </div>
+        <button id="touch-excuse" type="button" class="pd-touch-excuse" aria-label="Excuse me">🏃<span>Excuse</span></button>
+      </div>
     </main>
 
     <footer class="footer">
       <small>
-        Grab your stuff, dodge small talk, sprint to the elevator. ·
+        Arrows/WASD move · stand on items to pack · Space/E “excuse me!” · P pause · R restart · M sound ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
       </small>
     </footer>
 
+    <!-- Result -->
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-box">
         <h2 id="modal-title">You’re out!</h2>
-        <p id="modal-message">Game Over or maybe Game Restart somewhere new 👋</p>
+        <div id="modal-stars" class="pd-stars" role="img" aria-label="Stars"></div>
+        <dl id="modal-breakdown" class="pd-breakdown"></dl>
+        <p id="modal-message"></p>
         <div class="modal-actions">
-          <button id="modal-restart" type="button">Restart</button>
-          <a id="modal-library" class="button" href="index.html">Library</a>
+          <button id="modal-floors" type="button">Floors</button>
+          <button id="modal-restart" type="button">Retry (R)</button>
+          <button id="modal-next" type="button">Next floor (Enter)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floor select -->
+    <div id="floors-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="floors-title">
+      <div class="modal-box pd-floors-box">
+        <h2 id="floors-title">Floors</h2>
+        <p class="pd-total">Stars: <span id="total-stars">0</span></p>
+        <div id="floor-grid" class="pd-floor-grid"></div>
+        <div class="modal-actions">
+          <button id="floors-close" type="button">Close (Esc)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pause -->
+    <div id="pause-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+      <div class="modal-box">
+        <h2 id="pause-title">Paused</h2>
+        <ul class="pd-help">
+          <li><kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd> / <kbd>WASD</kbd> move</li>
+          <li>Stand on an item to pack it. A heavier box makes you slower.</li>
+          <li>Stay out of the boss’s yellow gaze. If he catches you, mash <kbd>Space</kbd>.</li>
+          <li>Bumped into a coworker? <kbd>Space</kbd> to excuse yourself, or stay for a ♥.</li>
+          <li>Everything packed? Run for the elevator. Beat par for ★★★.</li>
+        </ul>
+        <div class="modal-actions">
+          <button id="pause-floors" type="button">Floors</button>
+          <button id="pause-restart" type="button">Restart</button>
+          <button id="pause-resume" type="button">Resume (P)</button>
         </div>
       </div>
     </div>
