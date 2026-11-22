@@ -910,13 +910,11 @@ body.race-page { height: auto; min-height: 100%; }
 /* Pack & Dash! */
 .pd-stage { position: relative; display: grid; place-items: center; max-width: 100%; }
 .pd-stage canvas#game { width: min(960px, 92vw, calc((100vh - 190px) * 1.2)); max-width: 100%; display: block; }
-.pd-choice {
+.pd-excuse {
   position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; width: max-content; max-width: calc(100% - 16px);
-  background: var(--panel); border: 1px solid rgba(255,255,255,0.08);
-  padding: 8px 10px; border-radius: 10px; box-shadow: 0 8px 16px rgba(0,0,0,0.25);
+  padding: 8px 14px; border-radius: 10px; box-shadow: 0 8px 16px rgba(0,0,0,0.25); font-weight: 600;
 }
-.pd-choice.hidden { display: none; }
+.pd-excuse.hidden { display: none; }
 .modal-actions a.button {
   background: var(--panel); color: var(--text); border: 1px solid #374151;
   padding: 6px 10px; border-radius: 6px; text-decoration: none;
