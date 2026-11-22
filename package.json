@@ -7,5 +7,8 @@
   "license": "UNLICENSED",
   "dependencies": {
     "pg": "^8.11.5"
+  },
+  "scripts": {
+    "check-packdash": "node tools/check-packdash.cjs"
   }
 }
