@@ -6,49 +6,98 @@
     <title>Backspace</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
-  <body>
+  <body class="backspace-page">
     <header class="topbar">
       <h1>Backspace</h1>
       <div class="controls">
-        <label>
-          Level:
-          <select id="level-select" aria-label="Level select">
-          </select>
-        </label>
-        <button id="sound-btn" type="button" aria-pressed="true">Sound: On (M)</button>
+        <button id="levels-btn" type="button">Levels</button>
+        <button id="pause-btn" type="button" aria-pressed="false">Pause (P)</button>
+        <button id="sound-btn" type="button" aria-pressed="true">Sound: On</button>
         <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
         <button id="restart-btn" type="button">Restart (R)</button>
       </div>
     </header>
 
     <main>
-      <section class="hud">
-        <div>Echoes left: <span id="ghosts">0</span></div>
-        <div>Move: arrows/WASD · Jump: Space/Z · Hold Backspace/X: rewind · U: undo echo</div>
-        <div id="status"></div>
+      <section class="hud bs-hud">
+        <div class="bs-level"><span id="level-num">1</span>. <strong id="level-name">-</strong></div>
+        <div class="bs-echoes" aria-label="Echoes left">Echoes <span id="echo-pips" class="bs-pips" role="img"></span></div>
+        <div>Time <span id="time" class="bs-num">0.0</span>s</div>
+        <div class="bs-par">Par <span id="par">-</span></div>
+        <div id="status" aria-live="polite"></div>
       </section>
       <section class="backspace-wrap">
-        <canvas id="game" width="640" height="360" aria-label="Backspace level"></canvas>
+        <div id="stage" class="bs-stage">
+          <canvas id="game" width="576" height="216" aria-label="Backspace level"></canvas>
+        </div>
       </section>
+      <div id="touch" class="bs-touch" aria-label="Touch controls">
+        <div class="bs-touch-group">
+          <button type="button" data-key="left" aria-label="Move left">◀</button>
+          <button type="button" data-key="right" aria-label="Move right">▶</button>
+        </div>
+        <div class="bs-touch-group">
+          <button type="button" data-key="undo" class="small" aria-label="Undo echo">Undo</button>
+          <button type="button" data-key="rewind" class="rewind" aria-label="Hold to rewind">⟲</button>
+          <button type="button" data-key="jump" class="jump" aria-label="Jump">▲</button>
+        </div>
+      </div>
     </main>
 
     <footer class="footer">
       <small>
-        Hold Backspace to rewind time. Your echo replays what you did, so it can hold switches and be stood on. ·
+        Arrows/WASD move · Space/Z jump (hold for higher) · hold Backspace/X to rewind · U undo echo · P pause · R restart · M sound ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
       </small>
     </footer>
 
+    <!-- Win -->
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-box">
-        <h2 id="modal-title">You Win!</h2>
-        <p id="modal-message">Great rewind! Press Restart for another run.</p>
+        <h2 id="modal-title">Level complete!</h2>
+        <div id="modal-stars" class="bs-stars" role="img" aria-label="Stars"></div>
+        <div class="bs-results">
+          <div><span>Time</span><strong id="res-time">-</strong><small id="res-time-par"></small></div>
+          <div><span>Echoes</span><strong id="res-echoes">-</strong><small id="res-echoes-par"></small></div>
+        </div>
+        <p id="modal-message"></p>
         <div class="modal-actions">
-          <button id="modal-next" type="button">Next Level ▶</button>
-          <button id="modal-restart" type="button">Restart</button>
-          <button id="modal-close" type="button">Close</button>
+          <button id="modal-levels" type="button">Levels</button>
+          <button id="modal-restart" type="button">Retry (R)</button>
+          <button id="modal-next" type="button">Next level (Enter)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Level select -->
+    <div id="levels-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="levels-title">
+      <div class="modal-box bs-levels-box">
+        <h2 id="levels-title">Levels</h2>
+        <p class="bs-total">Stars: <span id="total-stars">0</span></p>
+        <div id="level-grid" class="bs-level-grid"></div>
+        <div class="modal-actions">
+          <button id="levels-close" type="button">Close (Esc)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pause -->
+    <div id="pause-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+      <div class="modal-box">
+        <h2 id="pause-title">Paused</h2>
+        <ul class="bs-help">
+          <li><kbd>←</kbd><kbd>→</kbd> / <kbd>A</kbd><kbd>D</kbd> move</li>
+          <li><kbd>Space</kbd> / <kbd>Z</kbd> jump - hold for a higher jump</li>
+          <li>Hold <kbd>Backspace</kbd> / <kbd>X</kbd> to rewind, release to leave an echo</li>
+          <li><kbd>U</kbd> removes your last echo</li>
+          <li>Echoes replay what you did. They hold plates and you can stand on them.</li>
+        </ul>
+        <div class="modal-actions">
+          <button id="pause-levels" type="button">Levels</button>
+          <button id="pause-restart" type="button">Restart</button>
+          <button id="pause-resume" type="button">Resume (P)</button>
         </div>
       </div>
     </div>
@@ -57,4 +106,4 @@
     <script src="src/backspace.js"></script>
     <script src="src/backspace_ui.js"></script>
   </body>
-  </html>
+</html>

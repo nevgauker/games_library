@@ -1,12 +1,14 @@
 // Backspace levels. Legend:
 //  # wall   . empty   P spawn   G goal
-//  S switch (hold)    D door (open while any switch is held)
+//  S plate (hold)     D door (open while any plate is held)
 (function(global){
   global.BACKSPACE_LEVELS = [
     {
       name: 'First Echo',
-      hint: 'Stand on the switch, then rewind to leave a ghost holding it.',
+      hint: 'Stand on the plate, then hold Backspace to rewind. Your echo will keep holding it.',
+      tips: [ { at:[8,5], text:'Stand here' }, { at:[3,4], text:'Hold Backspace to rewind' } ],
       echoes: 1,
+      par: { echoes: 1, time: 10 },
       map: [
         "########################",
         "#..........#...........#",
@@ -22,8 +24,9 @@
     },
     {
       name: 'Ledge',
-      hint: 'The switch is up high. Hold it, rewind, then race the ghost.',
+      hint: 'The plate is up high. Hold it, rewind, then race to the door while your echo holds it.',
       echoes: 1,
+      par: { echoes: 1, time: 10 },
       map: [
         "########################",
         "#..........#...........#",
@@ -39,8 +42,9 @@
     },
     {
       name: 'Long Way Down',
-      hint: 'The ghost only lasts two seconds. Find the fastest route.',
+      hint: 'Echoes only last as long as you rewind. Find a fast route to the door.',
       echoes: 1,
+      par: { echoes: 1, time: 10 },
       map: [
         "########################",
         "#.........#............#",
