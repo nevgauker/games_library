@@ -906,3 +906,68 @@ body.race-page { height: auto; min-height: 100%; }
   .volfied-hud { gap: 6px 16px; }
   .volfied-hud #status { flex-basis: 100%; margin-left: 0; }
 }
+
+/* Neon Labyrinth '89 */
+.neonlab-page .nl-hud { flex-wrap: wrap; row-gap: 4px; align-items: center; font-variant-numeric: tabular-nums; }
+.neonlab-page .retro-screen {
+  /* 3:2 field sized to the viewport so the HUD stays visible */
+  width: min(92vw, 960px, max(300px, calc((100vh - 200px) * 1.5)));
+  width: min(92vw, 960px, max(300px, calc((100svh - 200px) * 1.5)));
+  background: #05060f;
+}
+.neonlab-page canvas#game.nl-crt { filter: saturate(1.15) contrast(1.05); }
+.nl-timer { display: inline-flex; align-items: center; gap: 8px; }
+.nl-timebar {
+  position: relative; display: inline-block; width: 120px; height: 10px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18); overflow: hidden; background: rgba(0,0,0,0.25);
+}
+.nl-timebar-fill {
+  position: absolute; inset: 0 auto 0 0; width: var(--pct, 100%);
+  background: linear-gradient(90deg, #00e5ff, #ff2bd6); transition: width 120ms linear;
+}
+.nl-timebar.low .nl-timebar-fill { background: #ff2a4a; animation: nl-blink 0.5s steps(2) infinite; }
+.nl-low { color: #ff4d64; font-weight: 700; }
+@keyframes nl-blink { 50% { opacity: 0.35; } }
+.nl-keys { display: inline-flex; align-items: center; gap: 6px; }
+.nl-key { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 2px; vertical-align: -2px; box-shadow: 0 0 6px currentColor; }
+.nl-key-a { background: #ffc400; color: #ffc400; }
+.nl-key-b { background: #b26bff; color: #b26bff; }
+.nl-key-c { background: #4d7cff; color: #4d7cff; }
+.nl-modal .modal-box { width: min(92vw, 560px); }
+.nl-modal button.primary { border-color: var(--primary); color: var(--primary); font-weight: 600; }
+.nl-facts { margin: 0 0 16px 0; padding-left: 18px; line-height: 1.6; }
+.nl-modal .nl-stars { font-size: 34px; letter-spacing: 6px; color: #ffc400; margin: 0 0 8px 0; text-shadow: 0 0 12px rgba(255,196,0,0.5); }
+.nl-badge { font-size: 12px; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: #04130c; font-weight: 700; }
+.nl-level-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.nl-level-card {
+  display: grid; gap: 2px; justify-items: start; text-align: left; padding: 8px 10px; border-radius: 10px;
+  background: var(--card); min-height: 86px;
+}
+.nl-level-card.current { border-color: #ff2bd6; }
+.nl-level-card:disabled { opacity: 0.45; cursor: not-allowed; }
+.nl-level-card:disabled:hover { border-color: inherit; color: inherit; }
+.nl-level-num { font-size: 12px; color: var(--muted); }
+.nl-level-title { font-weight: 600; font-size: 14px; }
+.nl-level-stars { color: #ffc400; letter-spacing: 2px; }
+.nl-level-best { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+[data-theme="light"] .neonlab-page .retro-screen, [data-theme="light"] .neonlab-page canvas#game { background: #eef1f8; }
+[data-theme="light"] .nl-timebar { border-color: #cbd5e1; background: #e5e7eb; }
+[data-theme="light"] .nl-modal .nl-stars, [data-theme="light"] .nl-level-stars { color: #b37f00; text-shadow: none; }
+[data-theme="light"] .nl-key-a { background: #b37f00; color: #b37f00; }
+[data-theme="light"] .nl-key-b { background: #7a2fd6; color: #7a2fd6; }
+[data-theme="light"] .nl-key-c { background: #2448d8; color: #2448d8; }
+@media (hover: none) and (pointer: coarse) {
+  .neonlab-page .dpad { display: grid; }
+  .neonlab-page .retro-screen {
+    width: min(92vw, 960px, max(240px, calc((100vh - 400px) * 1.5)));
+    width: min(92vw, 960px, max(240px, calc((100svh - 400px) * 1.5)));
+  }
+}
+@media (max-width: 640px) {
+  .neonlab-page .topbar { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
+  .neonlab-page .topbar h1 { font-size: 18px; }
+  .neonlab-page .controls { flex-wrap: wrap; gap: 6px; }
+  .neonlab-page .controls button { padding: 5px 8px; font-size: 13px; }
+  .neonlab-page .nl-hud { gap: 6px 16px; }
+  .neonlab-page .nl-hud #status { flex-basis: 100%; margin-left: 0; }
+}
