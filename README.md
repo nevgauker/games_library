@@ -60,7 +60,7 @@ Project Structure
 - `memory.html` – Memory game page (standalone)
 - `checkers.html` – Checkers game page (standalone)
 - `snake.html` – Snake game page (standalone)
-- `packdash.html` – Pack & Dash! office escape (standalone)
+- `packdash.html` – Pack & Dash! office escape: 10 floors of packing, stealth and small talk (standalone)
 - `race.html` – Micro Racer (4 tracks × 3 AI levels, time trial with best-lap ghost)
 - `utopia.html` – Tiny Utopia cozy idle sandbox
  - `pacman.html` – Pac-Man retro maze chase
@@ -74,9 +74,12 @@ Project Structure
 - `src/checkers_ui.js` – Checkers UI rendering and interactions
 - `src/snake.js` – Snake engine (grid, snake movement, food, collisions)
 - `src/snake_ui.js` – Snake canvas rendering and input wiring
-- `src/packdash.js` – Pack & Dash! engine (timer, items, boss, coworkers)
-- `src/packdash_levels.js` – Pack & Dash! level maps and desk items (verified by `npm run check-packdash`)
-- `src/packdash_ui.js` – Pack & Dash! canvas rendering and interactions
+- `src/packdash.js` – Pack & Dash! engine (packing, box weight, boss vision cones, coworkers, wet floor, printers, cake, elevator schedules, scoring)
+- `src/packdash_levels.js` – Pack & Dash! 10 floors and the desk-item catalogue (verified by `npm run check-packdash`)
+- `src/packdash_ui.js` – Pack & Dash! screens, HUD, keyboard/touch input, saved progress, game loop
+- `src/packdash_render.js` – Pack & Dash! canvas art and effects (theme-aware)
+- `src/packdash_audio.js` – Pack & Dash! synthesised sound effects
+- `tools/check-packdash.cjs` – Pack & Dash! level checker (runs a stealth bot on the real engine)
 - `src/race.js` – Micro Racer engine (road splines, drift physics, AI, laps, boost pads, ghost recording)
 - `src/race_ui.js` – Micro Racer canvas rendering and controls
 - `src/utopia.js` – Tiny Utopia ecosystem engine

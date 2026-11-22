@@ -51,6 +51,7 @@
       coworker(){ tone(740, 0.07, { type: 'triangle', vol: 0.12 }); tone(988, 0.1, { type: 'triangle', vol: 0.12, at: 0.07 }); },
       heart(){ [784, 988, 1319].forEach((f, i) => tone(f, 0.12, { type: 'sine', vol: 0.14, at: i * 0.05 })); },
       ding(){ tone(1319, 0.5, { type: 'sine', vol: 0.18 }); tone(1047, 0.7, { type: 'sine', vol: 0.18, at: 0.22 }); },
+      jam(){ noise(0.18, { vol: 0.08, freq: 500 }); tone(110, 0.15, { type: 'square', vol: 0.05 }); },
       tick(){ tone(1600, 0.03, { type: 'square', vol: 0.05 }); },
       win(){ [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, 0.14, { type: 'triangle', vol: 0.16, at: i * 0.09 })); },
       lose(){ [392, 370, 349, 294].forEach((f, i) => tone(f, i === 3 ? 0.6 : 0.22, { type: 'sawtooth', vol: 0.1, at: i * 0.22, slide: i === 3 ? -40 : 0 })); },

@@ -8,7 +8,7 @@
       cone:'250,204,21', coneAlert:'248,113,113', coneIdle:'148,163,184',
       elevFrame:'#475569', elevDoor:'#94a3b8', elevDoorDark:'#64748b', elevInside:'#0b1222',
       shadow:'rgba(0,0,0,0.35)', itemGlow:'rgba(250,204,21,0.22)', bubble:'#f8fafc', bubbleText:'#0f172a', text:'#f8fafc',
-      vignette:'239,68,68',
+      vignette:'239,68,68', wet:'rgba(56,189,248,0.22)', wetShine:'rgba(186,230,253,0.35)', hrCone:'167,139,250',
     },
     light: {
       floorA:'#e9e4da', floorB:'#e2dccf', fleck:'rgba(120,113,108,0.10)',
@@ -17,12 +17,13 @@
       cone:'234,179,8', coneAlert:'220,38,38', coneIdle:'100,116,139',
       elevFrame:'#64748b', elevDoor:'#cbd5e1', elevDoorDark:'#94a3b8', elevInside:'#334155',
       shadow:'rgba(15,23,42,0.18)', itemGlow:'rgba(234,179,8,0.25)', bubble:'#ffffff', bubbleText:'#0f172a', text:'#0f172a',
-      vignette:'220,38,38',
+      vignette:'220,38,38', wet:'rgba(14,165,233,0.22)', wetShine:'rgba(255,255,255,0.6)', hrCone:'124,58,237',
     },
   };
   const SHIRTS = ['#f472b6', '#a78bfa', '#fb923c', '#22d3ee', '#facc15'];
   const BOSS_LINES = ['Quick sync?', 'Circle back…', 'Synergy!', 'Per my email…', 'Big picture…', 'Bandwidth?'];
   const CHAT_LINES = ['Weekend plans?', 'Did you see…', 'So anyway…', 'Haha, totally', 'Lunch later?'];
+  const HR_LINES = ['Exit survey?', 'Your badge…', 'Scale of 1-10…', 'Laptop return?', 'Any feedback?', 'Sign here…'];
 
   function hash(x, y){ let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 
@@ -55,6 +56,19 @@
         g.fillStyle = (x + y) % 2 ? pal.floorA : pal.floorB;
         g.fillRect(x*T, y*T, T, T);
         if (hash(x, y) < 0.5){ g.fillStyle = pal.fleck; g.fillRect(x*T + Math.floor(hash(y, x) * 13), y*T + Math.floor(hash(x+7, y) * 13), 2, 2); }
+      }
+      for (let y = 0; y < game.rows; y++) for (let x = 0; x < game.cols; x++){
+        if (!game.isWet(x, y)) continue;
+        g.fillStyle = pal.wet; g.fillRect(x*T, y*T, T, T);
+        g.fillStyle = pal.wetShine;
+        g.fillRect(x*T + 2 + Math.floor(hash(x, y) * 6), y*T + 3 + Math.floor(hash(y, x) * 8), 5, 1);
+        if (hash(x + 3, y) < 0.35) g.fillRect(x*T + 8, y*T + 10, 3, 1);
+        // caution sign where the wet patch starts
+        if (!game.isWet(x - 1, y) && !game.isWet(x, y - 1)){
+          g.fillStyle = '#facc15';
+          g.beginPath(); g.moveTo(x*T + 3, y*T + 13); g.lineTo(x*T + 7, y*T + 4); g.lineTo(x*T + 11, y*T + 13); g.fill();
+          g.fillStyle = '#111827'; g.fillRect(x*T + 6.5, y*T + 7, 1, 3); g.fillRect(x*T + 6.5, y*T + 11, 1, 1);
+        }
       }
       const edge = (x, y) => x === 0 || y === 0 || x === game.cols - 1 || y === game.rows - 1;
       for (let y = 0; y < game.rows; y++) for (let x = 0; x < game.cols; x++){
@@ -161,7 +175,7 @@
       // boss vision cones (under everything that moves)
       for (const b of game.bosses){
         const active = !b.talking && b.cooldown <= 0;
-        const rgb = !active ? pal.coneIdle : b.alert > 0 ? pal.coneAlert : pal.cone;
+        const rgb = !active ? pal.coneIdle : b.alert > 0 ? pal.coneAlert : b.look === 'hr' ? pal.hrCone : pal.cone;
         const bgx = Math.floor(b.cx / T), bgy = Math.floor(b.cy / T);
         for (const k of b.vision){
           const gx = k % game.cols, gy = Math.floor(k / game.cols);
@@ -173,6 +187,8 @@
       }
 
       drawElevator(dt);
+      for (const q of game.printers) drawPrinter(q);
+      drawCake();
 
       // items
       for (const it of game.items){
@@ -205,11 +221,11 @@
       if (t){
         const choose = t.kind === 'coworker' && t.phase === 'choose';
         const frac = t.t / t.total;
-        meter(pc.x, p.y - 16, frac, t.kind === 'boss' ? '#f87171' : choose ? '#facc15' : '#f472b6');
+        meter(pc.x, p.y - 16, frac, t.kind === 'boss' ? '#f87171' : choose ? '#facc15' : t.phase === 'nod' ? '#94a3b8' : '#f472b6');
       }
 
       // elevator pointer once the box is packed
-      if (game.itemsLeft === 0 && game.state === 'playing'){
+      if (game.itemsLeft === 0 && game.state === 'playing' && !game.talk){
         const e = game.elevator, ex = e.x + e.w/2, ey = e.y + e.h/2;
         const dx = ex - pc.x, dy = ey - pc.y, d = Math.hypot(dx, dy);
         if (d > 40){
@@ -248,7 +264,7 @@
     }
 
     function drawElevator(dt){
-      const e = game.elevator, open = game.itemsLeft === 0;
+      const e = game.elevator, open = game.doorsOpen, packed = game.itemsLeft === 0;
       elevAnim = Math.max(0, Math.min(1, elevAnim + (open ? dt * 1.5 : -dt * 3)));
       ctx.fillStyle = pal.elevFrame; ctx.fillRect(e.x, e.y, e.w, e.h);
       ctx.fillStyle = pal.elevInside; ctx.fillRect(e.x + 3, e.y + 5, e.w - 6, e.h - 6);
@@ -261,15 +277,62 @@
       ctx.fillRect(e.x + 3 + half + slide, e.y + 5, 1, e.h - 6);
       // indicator light
       const glow = open ? 0.6 + 0.4 * Math.sin(clock * 5) : 1;
-      ctx.fillStyle = open ? `rgba(74,222,128,${glow.toFixed(2)})` : '#f87171';
+      const sched = !!game.schedule;
+      ctx.fillStyle = open ? `rgba(74,222,128,${glow.toFixed(2)})` : sched && game.scheduleOpen() ? '#4ade80' : sched ? '#fbbf24' : '#f87171';
       ctx.beginPath(); ctx.arc(e.x + e.w/2, e.y + 2.5, 1.8, 0, Math.PI*2); ctx.fill();
       if (open){ ctx.fillStyle = 'rgba(74,222,128,0.12)'; ctx.fillRect(e.x - 2, e.y - 2, e.w + 4, e.h + 4); }
+      if (sched && !game.scheduleOpen()){
+        // countdown to the next door opening
+        const wait = Math.ceil(game.scheduleWait());
+        ctx.font = '700 8px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(15,23,42,0.85)'; ctx.strokeText(String(wait), e.x + e.w/2, e.y + e.h/2 + 2);
+        ctx.fillStyle = packed ? '#fbbf24' : '#94a3b8'; ctx.fillText(String(wait), e.x + e.w/2, e.y + e.h/2 + 2);
+      }
+    }
+
+    function drawPrinter(q){
+      const x = q.x, y = q.y;
+      const ph = (game.time + q.phase) % q.period;
+      if (q.jammed){
+        // printer spewing a pile of paper across the doorway
+        ctx.fillStyle = '#64748b'; ctx.fillRect(x + 1, y + 1, T - 2, T - 2);
+        ctx.fillStyle = '#334155'; ctx.fillRect(x + 1, y + 1, T - 2, 4);
+        ctx.fillStyle = '#ef4444'; ctx.fillRect(x + T - 5, y + 2, 2, 2);
+        for (let i = 0; i < 5; i++){
+          const a = hash(q.gx * 7 + i, q.gy) * Math.PI * 2, r = 3 + (i % 3) * 2;
+          ctx.fillStyle = '#f8fafc';
+          ctx.save(); ctx.translate(x + T/2 + Math.cos(a) * r * 0.8, y + T/2 + 2 + Math.sin(a) * r * 0.6); ctx.rotate(a + Math.sin(clock * 6 + i) * 0.2);
+          ctx.fillRect(-2.5, -1.5, 5, 3); ctx.restore();
+        }
+        const left = (q.jam - ph) / q.jam;
+        ctx.strokeStyle = '#f87171'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x + T/2, y + T/2, 7.5, -Math.PI/2, -Math.PI/2 + left * Math.PI * 2); ctx.stroke();
+      } else {
+        const until = q.period - ph;
+        ctx.strokeStyle = until < 0.8 && Math.floor(clock * 8) % 2 ? '#facc15' : 'rgba(148,163,184,0.45)';
+        ctx.lineWidth = 1; ctx.setLineDash([2, 2]); ctx.strokeRect(x + 1.5, y + 1.5, T - 3, T - 3); ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(248,250,252,0.5)'; ctx.fillRect(x + 3, y + 11, 4, 2); ctx.fillRect(x + 9, y + 4, 3, 2);
+      }
+    }
+
+    function drawCake(){
+      const k = game.cake;
+      if (!k || k.eaten) return;
+      const cx = k.gx*T + T/2, cy = k.gy*T + T/2;
+      ctx.fillStyle = pal.shadow; ctx.beginPath(); ctx.ellipse(cx, cy + 5, 6, 2, 0, 0, Math.PI*2); ctx.fill();
+      drawEmoji('🎂', cx, cy, 12);
+      if (k.progress > 0){
+        ctx.strokeStyle = '#f472b6'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cx, cy, 9, -Math.PI/2, -Math.PI/2 + k.progress * Math.PI * 2); ctx.stroke();
+      }
     }
 
     function drawBoss(b){
       const moving = !b.talking && b.wait <= 0;
-      person(b.cx, b.cy, { shirt: '#1e3a8a', tie: '#dc2626', face: b.face, bob: moving ? clock * 9 : 0, hair: '#6b7280' });
-      if (b.talking) bubble(b.cx, b.cy - 12, BOSS_LINES[Math.floor(clock / 0.9 + b.i) % BOSS_LINES.length], '#f87171');
+      const hr = b.look === 'hr';
+      person(b.cx, b.cy, { shirt: hr ? '#7c3aed' : '#1e3a8a', tie: hr ? null : '#dc2626', face: b.face, bob: moving ? clock * 9 : 0, hair: hr ? '#92400e' : '#6b7280' });
+      if (hr){ ctx.fillStyle = '#f8fafc'; ctx.fillRect(b.cx + 3, b.cy - 3, 4, 5); ctx.fillStyle = '#94a3b8'; ctx.fillRect(b.cx + 4, b.cy - 2, 2, 1); }
+      if (b.talking) bubble(b.cx, b.cy - 12, (hr ? HR_LINES : BOSS_LINES)[Math.floor(clock / 0.9 + b.i) % BOSS_LINES.length], hr ? '#a78bfa' : '#f87171');
       else if (b.alert > 0){
         ctx.fillStyle = '#f87171'; ctx.font = '900 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText('!', b.cx, b.cy - 17 - Math.min(1, b.alert * 6) * 2);
@@ -280,11 +343,12 @@
     }
 
     function drawCoworker(c){
-      const moving = !c.talking && c.wait <= 0;
-      person(c.cx, c.cy, { shirt: SHIRTS[c.i % SHIRTS.length], face: c.face, bob: moving ? clock * 8 : 0, hair: ['#78350f', '#111827', '#b45309'][c.i % 3] });
+      const moving = !c.talking && (c.wait <= 0 || c.seeking || c.home);
+      person(c.cx, c.cy, { shirt: SHIRTS[c.i % SHIRTS.length], face: c.face, bob: moving ? clock * (c.seeking ? 12 : 8) : 0, hair: ['#78350f', '#111827', '#b45309'][c.i % 3] });
       const t = game.talk;
-      if (t && t.who === c) bubble(c.cx, c.cy - 12, t.phase === 'choose' ? 'Heyyy! 👋' : CHAT_LINES[Math.floor(clock / 0.8 + c.i) % CHAT_LINES.length], '#f472b6');
-      else if (c.cooldown > 0 && c.cooldown > 4.5) bubble(c.cx, c.cy - 12, 'Oh, ok!', '#94a3b8');
+      if (t && t.who === c) bubble(c.cx, c.cy - 12, t.phase === 'choose' ? 'Heyyy! 👋' : t.phase === 'nod' ? 'Oh… bye!' : CHAT_LINES[Math.floor(clock / 0.8 + c.i) % CHAT_LINES.length], '#f472b6');
+      else if (c.seeking) bubble(c.cx, c.cy - 12, 'Wait!! 👋', '#f472b6');
+      else if (c.cooldown > 4.5) bubble(c.cx, c.cy - 12, 'Oh, ok!', '#94a3b8');
     }
 
     return { render, resize, setTheme, burst, dust, floatText, kick, reset };

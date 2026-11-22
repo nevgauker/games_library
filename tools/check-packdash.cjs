@@ -16,22 +16,36 @@ for (const f of ['src/packdash_levels.js', 'src/packdash.js']) {
   new Function('window', fs.readFileSync(path.join(root, f), 'utf8') + `\n//# sourceURL=${f}`)(win);
 }
 const { PackDashGame, PACKDASH_LEVELS, PACKDASH_ITEMS } = win;
-const { TILE, BASE_SPEED, PACK_TIME } = win.__PACKDASH_CONST;
+const { TILE, BASE_SPEED, PACK_TIME, SLIDE_MUL } = win.__PACKDASH_CONST;
+const TOL = 2.5;               // px from a tile centre that counts as 'there'
 const DT = 1 / 60;
 const ORDERS = 24;            // most promising item orders to simulate
 const CAUTION = [0, 1, 2];    // tiles of look-ahead the bot keeps out of boss cones
 const MASH_EVERY = 10;        // frames between excuse presses (6/s, a relaxed human mash)
 const VERBOSE = process.argv.includes('-v');
 
+// Shortest paths over floor tiles (Dijkstra). Stepping onto wet floor slides you
+// to where the slide stops, so those moves are single directed edges.
 function bfs(g, sx, sy) {
   const dist = new Map(), prev = new Map(), key = (x, y) => y * g.cols + x;
-  const q = [[sx, sy]]; dist.set(key(sx, sy), 0);
-  for (let h = 0; h < q.length; h++) {
-    const [x, y] = q[h];
+  const done = new Set();
+  dist.set(key(sx, sy), 0);
+  const open = [[sx, sy]];
+  while (open.length) {
+    let bi = 0;
+    for (let i = 1; i < open.length; i++) if (dist.get(key(...open[i])) < dist.get(key(...open[bi]))) bi = i;
+    const [x, y] = open.splice(bi, 1)[0], k0 = key(x, y);
+    if (done.has(k0)) continue;
+    done.add(k0);
     for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-      const nx = x + dx, ny = y + dy, k = key(nx, ny);
-      if (g.isWall(nx, ny) || dist.has(k)) continue;
-      dist.set(k, dist.get(key(x, y)) + 1); prev.set(k, [x, y]); q.push([nx, ny]);
+      let nx = x + dx, ny = y + dy, n = 1;
+      if (g.isWall(nx, ny)) continue;
+      while (g.isWet(nx, ny) && !g.isWall(nx + dx, ny + dy)) { nx += dx; ny += dy; n++; }
+      const slid = g.isWet(x + dx, y + dy);
+      const cost = dist.get(k0) + (slid ? n / SLIDE_MUL : n);
+      const k = key(nx, ny);
+      if (dist.has(k) && dist.get(k) <= cost) continue;
+      dist.set(k, cost); prev.set(k, [x, y]); open.push([nx, ny]);
     }
   }
   return { dist, prev, key };
@@ -82,8 +96,8 @@ function planRoutes(g) {
   return { problems, routes };
 }
 
-function runBot(levelIndex, route, caution, seed = 1) {
-  const g = new PackDashGame(levelIndex, { seed });
+function runBot(levelIndex, route, caution, levels = PACKDASH_LEVELS) {
+  const g = new PackDashGame(levelIndex, { seed: 1, levels });
   const steps = route.steps;
   let result = null, wp = 1, frame = 0, waited = 0, chats = 0, hearts = 0;
   g.on('bossTalk', () => chats++);
@@ -100,12 +114,16 @@ function runBot(levelIndex, route, caution, seed = 1) {
     let dir = null;
     while (wp < steps.length) {
       const s = steps[wp], tx = s.gx * TILE + TILE / 2, ty = s.gy * TILE + TILE / 2;
-      const there = Math.abs(cx - tx) <= 1 && Math.abs(cy - ty) <= 1;
+      const there = Math.abs(cx - tx) <= TOL && Math.abs(cy - ty) <= TOL;
       if (there) {
         if (s.item && g.items.some(it => !it.picked && it.gx === s.gx && it.gy === s.gy)) break; // packing
         wp++; continue;
       }
-      dir = Math.abs(cx - tx) > 1 ? (cx < tx ? 'right' : 'left') : (cy < ty ? 'down' : 'up');
+      dir = Math.abs(cx - tx) > TOL ? (cx < tx ? 'right' : 'left') : (cy < ty ? 'down' : 'up');
+      // Wait for a jammed printer ahead to clear.
+      const h0 = g.tileOf(p);
+      const ax = h0.gx + (dir === 'right' ? 1 : dir === 'left' ? -1 : 0), ay = h0.gy + (dir === 'down' ? 1 : dir === 'up' ? -1 : 0);
+      if (g.isBlocked(ax, ay) && !g.isWall(ax, ay)) { dir = null; break; }
       // Hold back while the next tiles are watched (unless we're already in plain view).
       const here = g.tileOf(p);
       if (caution > 0 && waited < 4 && !g.watched(here.gx, here.gy)) {
@@ -145,10 +163,18 @@ function checkLevel(i) {
       const res = runBot(i, r, c);
       if (res.win && (!best || res.time < best.time)) best = { ...res, caution: c, route: r };
     }
+    // Same routes with nobody around: how much do the NPCs actually cost?
+    const empty = PACKDASH_LEVELS.map((d, j) => j === i ? Object.assign({}, d, { bosses: [], coworkers: [] }) : d);
+    let alone = null;
+    for (const r of routes) { const res = runBot(i, r, 0, empty); if (res.win && (!alone || res.time < alone.time)) alone = res; }
     if (!best) fails.push('stealth bot never escapes in time');
     else {
       const ideal = routes[0].est;
-      summary = `bot ${best.time.toFixed(1)}s (route estimate ${ideal.toFixed(1)}s, boss chats ${best.chats}), par ${def.par}s, limit ${def.time}s`;
+      const cost = alone ? best.time - alone.time : 0;
+      summary = `bot ${best.time.toFixed(1)}s (alone ${alone ? alone.time.toFixed(1) : '-'}s, NPCs cost ${cost.toFixed(1)}s, boss chats ${best.chats}), par ${def.par}s, limit ${def.time}s`;
+      const npcs = (def.bosses || []).length + (def.coworkers || []).length;
+      if (npcs && cost < 0.3) warns.push(`NPCs never get in the way: they cost the bot ${cost.toFixed(1)}s`);
+      if (def.par < best.time * 1.1) warns.push(`par is tight for humans: bot needs ${best.time.toFixed(1)}s`);
       if (best.time > def.par) fails.push(`par ${def.par}s not reached by the bot (${best.time.toFixed(1)}s)`);
       if (def.par > best.time * 1.35) warns.push(`par is generous: bot needs ${best.time.toFixed(1)}s`);
       if (def.time > def.par * 2.2) warns.push(`time limit is generous: ${def.time}s vs par ${def.par}s`);

@@ -6,8 +6,13 @@
 //  - Bosses patrol fixed routes with a vision cone. Seen for SPOT_TIME (or bumped into)
 //    and you're stuck in a chat; mash excuse() to cut it short.
 //  - Coworkers patrol too. Bump into one and you have CHOICE_TIME to excuse yourself,
-//    otherwise you chat for COWORKER_CHAT seconds and earn a heart.
+//    otherwise you chat for COWORKER_CHAT seconds and earn a heart. (The excuse itself
+//    costs a NOD_TIME nod.) Coworkers who see you in their row/column hurry over.
 //  - All items packed + reach the elevator = win. Stars come from time vs. par.
+//  - Wet floor (w): step on it and you slide until something stops you.
+//  - Printers (p): jam on a timer; a jammed printer blocks its tile.
+//  - Cake (K): optional. Stand on it for CAKE_TIME: +PTS_CAKE, but +1 weight.
+//  - Elevator schedule (level.elevator): the doors only open part of each cycle.
 (function(global){
   const TILE = 16;
   const BASE_SPEED = 80;         // px/s with an empty box
@@ -21,7 +26,13 @@
   const CHOICE_TIME = 1.0;       // s to excuse yourself from a coworker
   const COWORKER_CHAT = 2.0;     // s of small talk if you don't
   const COWORKER_COOLDOWN = 6.0; // s before the same coworker engages again
-  const PTS_ITEM = 10, PTS_HEART = 25, PTS_PER_SECOND = 5;
+  const NOD_TIME = 0.4;          // s the awkward 'excuse me' nod holds you
+  const SEEK_RANGE = 4;          // tiles: coworkers notice you along their row/column
+  const SEEK_MUL = 1.3;          // ...and hurry over this much faster than they stroll
+  const PTS_ITEM = 10, PTS_HEART = 25, PTS_PER_SECOND = 5, PTS_CAKE = 40;
+  const CAKE_TIME = 1.0;         // s standing on the cake to eat it
+  const SLIDE_MUL = 1.25;        // wet floor slide speed vs. walking
+  const PRINTER = { period: 5, jam: 2 };
 
   function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
   function rectsOverlap(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
@@ -48,8 +59,8 @@
   function parseLevel(def, itemDefs){
     const rows = def.map.length, cols = def.map[0].length;
     const grid = [];
-    let spawn = null;
-    const elev = [], items = [];
+    let spawn = null, cake = null;
+    const elev = [], items = [], wet = new Set(), printers = [];
     for (let y = 0; y < rows; y++){
       const line = def.map[y];
       if (line.length !== cols) throw new Error(`row ${y} has ${line.length} cols, expected ${cols}`);
@@ -59,13 +70,16 @@
         row.push(ch === '#');
         if (ch === 'P') spawn = { gx:x, gy:y };
         else if (ch === 'E') elev.push({ gx:x, gy:y });
+        else if (ch === 'w') wet.add(y * cols + x);
+        else if (ch === 'p') printers.push({ gx:x, gy:y });
+        else if (ch === 'K'){ if (cake) throw new Error('more than one cake'); cake = { gx:x, gy:y }; }
         else if (ch >= '1' && ch <= '9'){
           const id = (def.items || [])[ch.charCodeAt(0) - 49];
           if (!id || !itemDefs[id]) throw new Error(`item '${ch}' at ${x},${y} has no entry in level.items/PACKDASH_ITEMS`);
           if (items.some(it => it.id === id)) throw new Error(`item '${ch}' placed twice`);
           items.push({ gx:x, gy:y, id, n: ch.charCodeAt(0) - 48 });
         }
-        else if (ch !== '#' && ch !== '.') throw new Error(`unknown tile '${ch}' at ${x},${y}`);
+        else if (ch !== '#' && ch !== '.' && ch !== 'w' && ch !== 'p' && ch !== 'K') throw new Error(`unknown tile '${ch}' at ${x},${y}`);
       }
       grid.push(row);
     }
@@ -77,6 +91,7 @@
     if (items.length !== (def.items || []).length) throw new Error('level.items lists items that are not on the map');
     items.sort((a,b) => a.n - b.n);
     const isWall = (x, y) => y < 0 || y >= rows || x < 0 || x >= cols || grid[y][x];
+    for (const it of items) if (wet.has(it.gy * cols + it.gx)) throw new Error(`item at ${it.gx},${it.gy} sits on a wet tile`);
     for (const kind of ['bosses', 'coworkers']){
       (def[kind] || []).forEach((a, i) => {
         const pts = a.path;
@@ -89,6 +104,7 @@
           for (let s = 0; s <= n; s++){
             const x = x0 + Math.sign(x1 - x0) * s, y = y0 + Math.sign(y1 - y0) * s;
             if (isWall(x, y)) throw new Error(`${kind}[${i}] path crosses a wall at ${x},${y}`);
+            if (printers.some(q => q.gx === x && q.gy === y)) throw new Error(`${kind}[${i}] path crosses a printer at ${x},${y}`);
           }
         }
       });
@@ -103,7 +119,7 @@
         walls.push({ x:x0*TILE, y:y*TILE, w:(x-x0)*TILE, h:TILE });
       }
     }
-    return { rows, cols, grid, walls, spawn, elevator:{ gx:ex, gy:ey }, items };
+    return { rows, cols, grid, walls, spawn, elevator:{ gx:ex, gy:ey }, items, wet, printers, cake };
   }
 
   // An NPC walking a fixed route of tile waypoints (ping-pong, or looping if def.loop).
@@ -114,7 +130,7 @@
       kind, i, pts, loop: !!def.loop, speed: def.speed ?? 40, pause: def.pause ?? 0.6, line: def.line,
       cx: pts[0].x, cy: pts[0].y, w: size, h: size, to: pts.length > 1 ? 1 : 0, step: 1,
       wait: def.delay ?? 0, face: { x: 1, y: 0 }, cooldown: 0, talking: false, alert: 0,
-      range: def.range ?? 5, vision: [],
+      range: def.range ?? 5, vision: [], seek: def.seek ?? SEEK_RANGE, home: null, seeking: false,
     };
     if (def.face) w.face = { x: def.face[0], y: def.face[1] };
     else aimAt(w);
@@ -165,8 +181,17 @@
       this.elevator = { x: L.elevator.gx*TILE, y: L.elevator.gy*TILE, w: 2*TILE, h: 2*TILE };
       this.items = L.items.map(it => ({ gx: it.gx, gy: it.gy, id: it.id, picked:false, progress:0, data: this.itemDefs[it.id] }));
       this.itemsLeft = this.items.length;
-      this.bosses = (def.bosses || []).map((b, i) => makeWalker(b, TILE-2, 'boss', i));
+      this.wet = L.wet; this.slide = null;
+      const pc = Object.assign({}, PRINTER, def.printers || {});
+      this.printers = L.printers.map((q, i) => ({ gx: q.gx, gy: q.gy, x: q.gx*TILE, y: q.gy*TILE, w: TILE, h: TILE,
+        period: pc.period, jam: pc.jam, phase: (pc.offset || 0) + i * pc.period / 2, jammed: false }));
+      this.printerIgnore = [];
+      this.cake = L.cake ? { gx: L.cake.gx, gy: L.cake.gy, eaten: false, progress: 0 } : null;
+      this.cakeEaten = false;
+      this.schedule = def.elevator || null;
+      this.bosses = (def.bosses || []).map((b, i) => Object.assign(makeWalker(b, TILE-2, 'boss', i), { look: b.look || 'boss' }));
       this.coworkers = (def.coworkers || []).map((c, i) => makeWalker(c, TILE-4, 'coworker', i));
+      this.updatePrinters();
       for (const b of this.bosses) this.updateVision(b);
       this.emit('restart');
       this.emit('time', Math.ceil(this.timeLeft));
@@ -186,7 +211,7 @@
       if (t.kind === 'coworker' && t.phase === 'choose'){
         this.emit('status', 'You deploy the stealth nod. Smooth.');
         this.emit('excuse', { kind: 'coworker' });
-        this.endTalk();
+        t.phase = 'nod'; t.t = t.total = NOD_TIME;
         return true;
       }
       if (t.kind === 'boss'){
@@ -202,6 +227,31 @@
     get speed(){ return BASE_SPEED * this.weightMul; }
 
     isWall(gx, gy){ return gy < 0 || gy >= this.rows || gx < 0 || gx >= this.cols || this.grid[gy][gx]; }
+    isWet(gx, gy){ return this.wet.has(gy * this.cols + gx); }
+    printerAt(gx, gy){ return this.printers.find(q => q.gx === gx && q.gy === gy) || null; }
+    // Wall, or a printer that is jammed right now.
+    isBlocked(gx, gy){ if (this.isWall(gx, gy)) return true; const q = this.printerAt(gx, gy); return !!(q && q.jammed); }
+
+    // Elevator doors: always open once packed, unless the level runs them on a schedule.
+    scheduleOpen(){
+      const s = this.schedule;
+      if (!s) return true;
+      return ((this.time + (s.offset || 0)) % s.period) < s.open;
+    }
+    // Seconds until the doors next open (0 if open now).
+    scheduleWait(){
+      const s = this.schedule;
+      if (!s || this.scheduleOpen()) return 0;
+      return s.period - ((this.time + (s.offset || 0)) % s.period);
+    }
+    get doorsOpen(){ return this.itemsLeft === 0 && this.scheduleOpen(); }
+
+    updatePrinters(){
+      for (const q of this.printers){
+        const j = ((this.time + q.phase) % q.period) < q.jam;
+        if (j !== q.jammed){ q.jammed = j; this.emit(j ? 'printerJam' : 'printerClear', q); }
+      }
+    }
     tileOf(r){ const c = centre(r); return { gx: Math.floor(c.x / TILE), gy: Math.floor(c.y / TILE) }; }
 
     step(dt){
@@ -210,14 +260,16 @@
       this.timeLeft = Math.max(0, this.timeLimit - this.time);
       this.emit('time', Math.ceil(this.timeLeft));
 
+      this.updatePrinters();
       this.stepTalk(dt);
       for (const b of this.bosses) this.stepWalker(b, dt);
       for (const c of this.coworkers) this.stepWalker(c, dt);
       this.stepPlayer(dt);
       this.checkEncounters(dt);
       this.stepPacking(dt);
+      this.stepCake(dt);
 
-      if (this.itemsLeft === 0 && !this.talk && rectsOverlap(this.player, this.elevator)){
+      if (this.doorsOpen && !this.talk && rectsOverlap(this.player, this.elevator)){
         this.state = 'won';
         this.emit('win', this.result());
         return;
@@ -233,10 +285,11 @@
       const items = (this.items.length - this.itemsLeft) * PTS_ITEM;
       const hearts = this.hearts * PTS_HEART;
       const timeBonus = Math.floor(this.timeLeft) * PTS_PER_SECOND;
+      const cake = this.cakeEaten ? PTS_CAKE : 0;
       const time = this.time;
       const stars = time <= this.par ? 3 : time <= this.silver ? 2 : 1;
       return { time, stars, par: this.par, silver: this.silver, items, hearts, heartCount: this.hearts,
-               timeBonus, total: items + hearts + timeBonus };
+               timeBonus, cake, total: items + hearts + timeBonus + cake };
     }
 
     stepTalk(dt){
@@ -284,6 +337,7 @@
 
     stepWalker(w, dt){
       if (w.cooldown > 0) w.cooldown = Math.max(0, w.cooldown - dt);
+      if (w.kind === 'coworker' && !w.talking && this.stepSeek(w, dt)) return;
       if (!w.talking && w.pts.length > 1){
         let budget = w.speed * dt;
         if (w.wait > 0){ const used = Math.min(w.wait, dt); w.wait -= used; budget = w.speed * (dt - used); }
@@ -297,6 +351,36 @@
         }
       }
       if (w.kind === 'boss') this.updateVision(w);
+    }
+
+    // Coworkers hurry toward a player they can see along their row/column, then walk back
+    // to the spot where they left their route. Returns true while that overrides patrolling.
+    stepSeek(w, dt){
+      const pc = centre(this.player);
+      const dx = pc.x - w.cx, dy = pc.y - w.cy;
+      let axis = null;
+      if (w.cooldown <= 0 && !this.talk){
+        if (Math.abs(dy) < TILE/2 && Math.abs(dx) <= w.seek * TILE) axis = 'x';
+        else if (Math.abs(dx) < TILE/2 && Math.abs(dy) <= w.seek * TILE) axis = 'y';
+        if (axis && !this.clearLine(w.cx, w.cy, pc.x, pc.y)) axis = null;
+        if (axis && w.home && w.home.axis !== axis) axis = null;
+      }
+      if (axis){
+        if (!w.home) w.home = { x: w.cx, y: w.cy, axis };
+        if (!w.seeking) this.emit('coworkerSeek', w);
+        w.seeking = true;
+        const d = axis === 'x' ? dx : dy, step = Math.sign(d) * Math.min(Math.abs(d), w.speed * SEEK_MUL * dt);
+        if (axis === 'x'){ w.cx += step; w.face = { x: Math.sign(d) || w.face.x, y: 0 }; }
+        else { w.cy += step; w.face = { x: 0, y: Math.sign(d) || w.face.y }; }
+        return true;
+      }
+      w.seeking = false;
+      if (!w.home) return false;
+      const hx = w.home.x - w.cx, hy = w.home.y - w.cy, hd = Math.hypot(hx, hy), s = w.speed * dt;
+      if (hd <= s){ w.cx = w.home.x; w.cy = w.home.y; w.home = null; aimAt(w); return false; }
+      w.cx += hx / hd * s; w.cy += hy / hd * s;
+      w.face = Math.abs(hx) >= Math.abs(hy) ? { x: Math.sign(hx), y: 0 } : { x: 0, y: Math.sign(hy) };
+      return true;
     }
 
     // Cone of floor tiles in front of the boss, widening with distance, blocked by walls.
@@ -351,7 +435,14 @@
       const p = this.player;
       const ox = p.x, oy = p.y;
       p.vx = p.vy = 0;
-      if (!this.talk && this.dir){
+      // Printers that jammed on top of you don't trap you; you can walk off them.
+      this.printerIgnore = this.printers.filter(q => q.jammed && rectsOverlap(p, q));
+      const here = this.tileOf(p);
+      if (!this.isWet(here.gx, here.gy)) this.slide = null;
+      else if (!this.slide && this.dir && !this.talk) this.slide = this.dir;
+      if (this.slide && !this.talk){
+        if (!this.tryMove(this.slide, this.speed * SLIDE_MUL * dt, false)) this.slide = null;
+      } else if (!this.talk && this.dir){
         const dist = this.speed * dt;
         const fb = this.fallback && this.fallback !== this.dir ? this.fallback : null;
         // With a fallback held, a direction that leads into a wall tile yields straight away.
@@ -377,7 +468,7 @@
       const gx = Math.floor(c.x / TILE), gy = Math.floor(c.y / TILE);
       const perp = horiz ? c.y : c.x;
       const lane = horiz ? gy : gx;
-      const open = l => horiz ? !this.isWall(gx + sign, l) && !this.isWall(gx, l) : !this.isWall(l, gy + sign) && !this.isWall(l, gy);
+      const open = l => horiz ? !this.isBlocked(gx + sign, l) && !this.isBlocked(gx, l) : !this.isBlocked(l, gy + sign) && !this.isBlocked(l, gy);
       let target = lane;
       if (!open(lane)){
         const side = perp - (lane * TILE + TILE/2) >= 0 ? 1 : -1;
@@ -429,13 +520,35 @@
       this.emit('memory', it.data.memory);
       if (this.itemsLeft === 0){
         this.emit('elevatorOpen');
-        this.emit('status', 'Box packed! Elevator’s open.');
+        this.emit('status', this.schedule ? 'Box packed! Catch the elevator while its light is green.' : 'Box packed! Elevator’s open.');
       }
     }
 
-    collidesAny(r){ for (const w of this.walls) if (rectsOverlap(r, w)) return true; return false; }
+    collidesAny(r){
+      for (const w of this.walls) if (rectsOverlap(r, w)) return true;
+      for (const q of this.printers) if (q.jammed && !this.printerIgnore.includes(q) && rectsOverlap(r, q)) return true;
+      return false;
+    }
+
+    stepCake(dt){
+      const k = this.cake;
+      if (!k || k.eaten) return;
+      const r = { x: k.gx*TILE+3, y: k.gy*TILE+3, w: TILE-6, h: TILE-6 };
+      if (!this.talk && rectsOverlap(this.player, r)){
+        if (k.progress === 0) this.emit('cakeStart', k);
+        k.progress = Math.min(1, k.progress + dt / CAKE_TIME);
+        if (k.progress >= 1){
+          k.eaten = true; this.cakeEaten = true;
+          this.weight += 1;
+          this.score += PTS_CAKE;
+          this.emit('score', this.score);
+          this.emit('cake', k);
+          this.emit('status', 'Cake! +40. Delicious. You feel… heavier.');
+        }
+      } else k.progress = 0;
+    }
   }
 
   global.PackDashGame = PackDashGame;
-  global.__PACKDASH_CONST = { TILE, BASE_SPEED, PACK_TIME, SPOT_TIME, BOSS_CHAT, EXCUSE_CUT, CHOICE_TIME, COWORKER_CHAT, parseLevel, walkerRect };
+  global.__PACKDASH_CONST = { TILE, BASE_SPEED, PACK_TIME, SLIDE_MUL, CAKE_TIME, SPOT_TIME, BOSS_CHAT, EXCUSE_CUT, CHOICE_TIME, COWORKER_CHAT, parseLevel, walkerRect };
 })(window);

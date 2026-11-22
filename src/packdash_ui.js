@@ -348,6 +348,17 @@
     sfx.pack();
   });
   game.on('spotted', () => sfx.spotted());
+  game.on('coworkerSeek', () => sfx.coworker());
+  game.on('cake', k => {
+    const x = k.gx*T + T/2, y = k.gy*T + T/2;
+    fx.burst(x, y, '#f472b6', 18, 60); fx.floatText(x, y - 8, '🎂 +40', '#f472b6', 9);
+    sfx.heart();
+  });
+  game.on('cakeStart', () => sfx.packTick());
+  game.on('printerJam', q => {
+    const p = game.player, d = Math.hypot(q.gx*T - p.x, q.gy*T - p.y);
+    if (d < 6 * T){ fx.burst(q.x + T/2, q.y + T/2, '#f8fafc', 6, 30); sfx.jam(); }
+  });
   game.on('bossTalk', () => { fx.kick(4); sfx.bossTalk(); });
   game.on('coworkerTalk', () => sfx.coworker());
   game.on('excuse', ({kind}) => {
@@ -356,7 +367,7 @@
     sfx.excuse();
   });
   game.on('heart', () => { fx.floatText(pcx(), pcy() - 12, '♥ +25', '#f472b6', 9); fx.burst(pcx(), pcy() - 6, '#f472b6', 8, 30); sfx.heart(); });
-  game.on('elevatorOpen', () => { const e = game.elevator; fx.burst(e.x + e.w/2, e.y + e.h/2, '#4ade80', 16, 50); sfx.ding(); });
+  game.on('elevatorOpen', () => { const e = game.elevator; fx.burst(e.x + e.w/2, e.y + e.h/2, '#4ade80', 16, 50); if (!game.schedule) sfx.ding(); });
   game.on('win', r => {
     const e = game.elevator; fx.burst(e.x + e.w/2, e.y + e.h/2, '#facc15', 30, 80); sfx.win();
     keys.length = 0; game.input(null);
@@ -369,7 +380,7 @@
   });
 
   // ---- fixed 60 Hz simulation, rendering every frame ----
-  let last = 0, acc = 0, stepDist = 0, murmurT = 0, lastTick = 0;
+  let last = 0, acc = 0, stepDist = 0, murmurT = 0, lastTick = 0, doorsWere = false;
   function loop(now){
     if (!last) last = now;
     const frame = Math.min(250, now - last);
@@ -383,6 +394,9 @@
       if (game.talk && game.talk.phase === 'chat'){ murmurT -= STEP_MS / 1000; if (murmurT <= 0){ murmurT = 0.16; sfx.murmur(); } }
       const sec = Math.ceil(game.timeLeft);
       if (game.state === 'playing' && sec <= 10 && sec !== lastTick){ lastTick = sec; sfx.tick(); }
+      const doors = game.doorsOpen;
+      if (game.schedule && doors && !doorsWere) sfx.ding();
+      doorsWere = doors;
       acc -= STEP_MS;
     }
     updateHud();
