@@ -6,46 +6,66 @@
     <title>Neon Labyrinth ’89</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
-  <body>
+  <body class="neonlab-page">
     <header class="topbar">
       <h1>Neon Labyrinth ’89</h1>
       <div class="controls">
-        <select id="level-select" aria-label="Select level"></select>
-        <button id="sound-btn" type="button" aria-pressed="true" aria-label="Toggle sound">Sound</button>
-        <button id="theme-btn" type="button" aria-pressed="false" aria-label="Toggle theme">Theme</button>
+        <button id="levels-btn" type="button">Levels (L)</button>
+        <button id="pause-btn" type="button" aria-pressed="false">Pause (P)</button>
         <button id="restart-btn" type="button">Restart (R)</button>
+        <button id="sound-btn" type="button" aria-pressed="true" aria-label="Toggle sound (M)">Sound: On</button>
+        <button id="crt-btn" type="button" aria-pressed="true">CRT: On</button>
+        <button id="theme-btn" type="button" aria-pressed="false">Light Theme</button>
       </div>
     </header>
 
     <main>
-      <section class="hud">
-        <div>Level: <span id="level">1</span>/5</div>
-        <div>Time: <span id="time">00.0</span>s</div>
-        <div>Tip: Arrows/WASD to move. Enter to start.</div>
-        <div id="status"></div>
+      <section class="hud nl-hud">
+        <div class="nl-level">Level <span id="level">1</span>/<span id="level-count">12</span> · <span id="level-name"></span></div>
+        <div class="nl-timer">
+          <span>Time: <span id="time">0.0</span>s</span>
+          <span id="time-bar" class="nl-timebar" role="progressbar" aria-label="Time left" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+            <span class="nl-timebar-fill"></span>
+          </span>
+        </div>
+        <div id="keys-wrap" class="nl-keys hidden">Keys: <span id="keys"></span></div>
+        <div id="crystals-wrap" class="hidden">Crystals: <span id="crystals">0/0</span></div>
+        <div>Best: <span id="best">–</span></div>
+        <div id="status" aria-live="polite"></div>
       </section>
-      <section class="backspace-wrap">
-        <canvas id="game" width="640" height="480" aria-label="Neon Labyrinth maze"></canvas>
+      <section class="retro-wrap">
+        <div class="retro-screen">
+          <canvas id="game" width="960" height="640" aria-label="Neon Labyrinth maze"></canvas>
+          <div id="scanlines" class="scanlines" aria-hidden="true"></div>
+        </div>
       </section>
+      <div id="dpad" class="dpad" aria-label="Direction pad">
+        <button type="button" class="up" data-dir="up" aria-label="Up">▲</button>
+        <button type="button" class="left" data-dir="left" aria-label="Left">◀</button>
+        <button type="button" class="right" data-dir="right" aria-label="Right">▶</button>
+        <button type="button" class="down" data-dir="down" aria-label="Down">▼</button>
+      </div>
     </main>
 
     <footer class="footer">
       <small>
-        Five timed mazes. Beat the clock! ·
+        <span id="controls-tip">Hold Arrows/WASD to glide · Enter starts · P pauses · R restarts · L levels · M sound</span> ·
         <a href="index.html">Library</a> ·
         <a href="agents/software_developer.md">Dev Notes</a> ·
         <a href="agents/game_designer.md">Design Notes</a>
       </small>
     </footer>
 
-    <!-- Mobile virtual joystick -->
-    <div id="vjoy" class="vjoy" aria-hidden="true">
-      <div class="vjoy-base">
-        <div class="vjoy-stick"></div>
+    <div id="modal" class="modal nl-modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <h2 id="modal-title"></h2>
+        <div id="modal-body"></div>
+        <div id="modal-actions" class="modal-actions"></div>
       </div>
     </div>
 
+    <script src="src/neonlabyrinth_levels.js"></script>
     <script src="src/neonlabyrinth.js"></script>
     <script src="src/neonlabyrinth_ui.js"></script>
   </body>
-  </html>
+</html>
